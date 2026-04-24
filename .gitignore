@@ -1,0 +1,10 @@
+# Environment variables (NEVER commit)
+.env.local
+
+# Internal docs / temporary guides
+REDIRECT_URI_GUIDE.md
+
+node_modules/
+.env
+.next/
+dist/
