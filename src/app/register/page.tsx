@@ -1,39 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { registerIdentity } from "@/lib/api";
 
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "32px 20px",
-};
+const MANAGE_URL = (process.env.NEXT_PUBLIC_MEMORYOS_MANAGE_URL || "/manage").replace(/\/$/, "");
 
-const shellStyle: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 720,
-  borderRadius: 28,
-  background: "rgba(255,255,255,0.92)",
-  border: "1px solid rgba(148,163,184,0.28)",
-  boxShadow: "0 28px 80px rgba(15,23,42,0.12)",
-  padding: 32,
-  display: "grid",
-  gap: 20,
-};
+function tokenBackupText(token: string) {
+  return [
+    "MemoryOS Universal User Identity Token",
+    "======================================",
+    `Token: ${token}`,
+    `Created: ${new Date().toISOString().slice(0, 10)}`,
+    "======================================",
+    "KEEP THIS SAFE. This token cannot be recovered.",
+    "If lost, you will need to regenerate it.",
+    `Regenerate at: ${MANAGE_URL}`,
+  ].join("\n");
+}
 
-const fieldStyle: React.CSSProperties = {
-  width: "100%",
-  borderRadius: 16,
-  border: "1px solid #cbd5e1",
-  background: "#fff",
-  padding: "14px 16px",
-  fontSize: 16,
-  color: "#0f172a",
-};
+function downloadText(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -41,7 +38,15 @@ export default function RegisterPage() {
   const [displayName, setDisplayName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [token, setToken] = useState("");
+  const [savedToken, setSavedToken] = useState(false);
+
+  const backupText = useMemo(() => (token ? tokenBackupText(token) : ""), [token]);
+  const mailtoHref = useMemo(() => {
+    const subject = encodeURIComponent("My MemoryOS token - keep safe");
+    const body = encodeURIComponent(backupText);
+    return `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
+  }, [backupText, email]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -52,16 +57,14 @@ export default function RegisterPage() {
 
     setSubmitting(true);
     setError("");
-    setSuccess("");
+    setToken("");
+    setSavedToken(false);
     try {
       const response = await registerIdentity({
         email: email.trim(),
         display_name: displayName.trim() || undefined,
       });
-      setSuccess(
-        response.data.message ||
-          "Account created. Check your email for the login code, then continue in consent or manage.",
-      );
+      setToken(response.data.uui_token);
     } catch (registerError) {
       const message =
         registerError instanceof Error ? registerError.message : "Unable to create your MemoryOS account.";
@@ -78,129 +81,98 @@ export default function RegisterPage() {
   }
 
   return (
-    <main style={pageStyle}>
-      <section style={shellStyle}>
-        <div style={{ display: "grid", gap: 10 }}>
-          <span
-            style={{
-              display: "inline-flex",
-              width: "fit-content",
-              borderRadius: 999,
-              padding: "6px 12px",
-              background: "#dbeafe",
-              color: "#1d4ed8",
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-            }}
-          >
-            Memory Passport
-          </span>
-          <h1 style={{ margin: 0, fontSize: "clamp(2rem, 5vw, 3.25rem)", lineHeight: 1.04 }}>
-            Create your MemoryOS account
-          </h1>
-          <p style={{ margin: 0, fontSize: 18, lineHeight: 1.65, color: "#475569" }}>
-            This page is optional. New users can also create an account inline during the consent flow.
-          </p>
+    <main className="consent-page">
+      <section className="consent-shell register-shell">
+        <div className="consent-hero-copy">
+          <span className="pill">Memory Passport</span>
+          <h1>Create your MemoryOS account</h1>
+          <p>This page is optional. New users can also create an account inline during the consent flow.</p>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16 }}>
-          <label style={{ display: "grid", gap: 8 }}>
-            <span style={{ fontWeight: 700, fontSize: 15 }}>Email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-              style={fieldStyle}
-            />
-          </label>
+        {!token ? (
+          <form onSubmit={handleSubmit} className="consent-card auth-card">
+            <label className="field">
+              <span>Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+              />
+            </label>
 
-          <label style={{ display: "grid", gap: 8 }}>
-            <span style={{ fontWeight: 700, fontSize: 15 }}>Display name (optional)</span>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              placeholder="How should MemoryOS refer to you?"
-              style={fieldStyle}
-            />
-          </label>
+            <label className="field">
+              <span>Display name (optional)</span>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                placeholder="How should MemoryOS refer to you?"
+                autoComplete="name"
+              />
+            </label>
 
-          {error ? (
-            <div
-              style={{
-                borderRadius: 16,
-                border: "1px solid #fecaca",
-                background: "#fff1f2",
-                color: "#9f1239",
-                padding: 14,
-              }}
-            >
-              {error}
+            {error ? <div className="alert alert-danger">{error}</div> : null}
+
+            <button type="submit" className="primary-button" disabled={submitting}>
+              {submitting ? "Creating account..." : "Create account"}
+            </button>
+          </form>
+        ) : (
+          <section className="consent-card token-backup-card">
+            <div className="alert alert-danger token-warning">
+              <strong>This token is shown ONCE and cannot be recovered.</strong>
+              <span>Save it before closing this page.</span>
             </div>
-          ) : null}
 
-          {success ? (
-            <div
-              style={{
-                borderRadius: 16,
-                border: "1px solid #bbf7d0",
-                background: "#f0fdf4",
-                color: "#166534",
-                padding: 14,
-              }}
-            >
-              {success}
+            <pre className="token-display">{token}</pre>
+
+            <div className="button-row">
+              <button type="button" className="quiet-button" onClick={() => void navigator.clipboard.writeText(token)}>
+                Copy token
+              </button>
+              <button
+                type="button"
+                className="quiet-button"
+                onClick={() => downloadText("memoryos-token.txt", backupText)}
+              >
+                Download as .txt
+              </button>
+              <a className="quiet-button mailto-button" href={mailtoHref}>
+                Email to myself
+              </a>
             </div>
-          ) : null}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            style={{
-              borderRadius: 16,
-              border: "1px solid #2563eb",
-              background: "#2563eb",
-              color: "#fff",
-              padding: "14px 18px",
-              fontWeight: 700,
-              cursor: submitting ? "not-allowed" : "pointer",
-              opacity: submitting ? 0.7 : 1,
-            }}
-          >
-            {submitting ? "Creating account..." : "Create account"}
-          </button>
-        </form>
+            <p className="muted-text">
+              Email to myself opens your email client. MemoryOS does not store your email or send anything on your behalf.
+            </p>
 
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={() => router.push("/consent")}
-            style={{
-              borderRadius: 16,
-              border: "1px solid #cbd5e1",
-              background: "#fff",
-              padding: "14px 16px",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
+            <label className="checkbox-line">
+              <input
+                type="checkbox"
+                checked={savedToken}
+                onChange={(event) => setSavedToken(event.target.checked)}
+              />
+              <span>I have saved my token</span>
+            </label>
+
+            <button
+              type="button"
+              className="deny-button"
+              disabled={!savedToken}
+              onClick={() => router.push("/manage")}
+            >
+              I have saved my token
+            </button>
+          </section>
+        )}
+
+        <div className="button-row">
+          <button type="button" className="quiet-button" onClick={() => router.push("/consent")}>
             Go to consent
           </button>
-          <button
-            type="button"
-            onClick={() => router.push("/manage")}
-            style={{
-              borderRadius: 16,
-              border: "1px solid #cbd5e1",
-              background: "#fff",
-              padding: "14px 16px",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
+          <button type="button" className="quiet-button" onClick={() => router.push("/manage")}>
             Go to manage
           </button>
         </div>

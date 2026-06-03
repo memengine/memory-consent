@@ -16,6 +16,9 @@ export type GlobalAgentProfile = {
   website_url: string | null;
   is_verified: boolean;
   default_categories_requested: MemoryCategory[];
+  owner_tenant?: {
+    domain_schema?: string | null;
+  } | null;
 };
 
 export type PermissionGrant = {
@@ -26,6 +29,7 @@ export type PermissionGrant = {
   agent_logo_url: string | null;
   agent_website_url: string | null;
   agent_is_verified: boolean;
+  agent_domain_schema?: string | null;
   categories_allowed: MemoryCategory[];
   access_type: GrantAccessType;
   granted_at: string | null;
@@ -40,6 +44,114 @@ export type SessionUser = {
   display_name: string | null;
   memory_count: number;
   grants: PermissionGrant[];
+  masked_uui_token?: string | null;
+};
+
+export type MemoryPreview = {
+  content_preview: string;
+  category: MemoryCategory;
+  importance_score: number;
+  stored_ago: string;
+};
+
+export type EdTechTopicSummary = {
+  topic: string;
+  severity?: string | null;
+  attempts?: number | null;
+  confidence?: number | null;
+};
+
+export type EdTechUserProfile = {
+  grade_level: string | null;
+  board: string | null;
+  exam_name: string | null;
+  exam_date: string | null;
+  days_to_exam: number | null;
+  marks_target: Record<string, unknown> | null;
+  weak_topics: EdTechTopicSummary[];
+  strong_topics: EdTechTopicSummary[];
+  forgetting_stages: Record<string, string>;
+  explanation_style: Record<string, unknown> | null;
+  language_profile: Record<string, unknown> | null;
+  total_edtech_memories: number;
+  source_agent_count: number;
+};
+
+export type DomainProfile = {
+  detected_domain: string | null;
+  edtech_profile: EdTechUserProfile | null;
+};
+
+export type ClarificationItem = {
+  id: string;
+  question_context: string;
+  created_at: string | null;
+  expires_at: string | null;
+  status: string;
+  entity_type: string | null;
+  domain?: string | null;
+  field?: string | null;
+  value_a: string | null;
+  value_b: string | null;
+  value_a_age_days?: number | null;
+  value_b_age_days?: number | null;
+};
+
+export type UniversalMemoryAudit = {
+  id: string;
+  content: string;
+  category: MemoryCategory;
+  importance_score: number;
+  importance_trend: "rising" | "stable" | "decaying" | string;
+  is_hot: boolean;
+  stored_days_ago: number;
+  last_accessed_days_ago: number | null;
+  source_agent_name: string | null;
+  source_agent_access_revoked: boolean;
+  stored_at: string | null;
+  is_flagged: boolean;
+};
+
+export type UserMemoryList = {
+  data: UniversalMemoryAudit[];
+  next_cursor: string | null;
+  total_count: number;
+  request_id: string;
+  timestamp: string;
+};
+
+export type UserMemoryFlagReason = "incorrect" | "outdated" | "never_said_this";
+
+export type UserMemorySort = "importance" | "recent" | "oldest";
+
+export type UniversalMemoryVersion = {
+  version_number: number;
+  content: string;
+  change_type: string;
+  change_reason: string | null;
+  changed_by: string;
+  agent_name: string | null;
+  created_at: string;
+  days_ago: number;
+};
+
+export type UserMemoryListParams = {
+  category?: MemoryCategory | null;
+  categories?: MemoryCategory[];
+  cursor?: string | null;
+  limit?: number;
+  sort?: UserMemorySort;
+};
+
+export type LegacyMemoryAudit = {
+  id: string;
+  content: string;
+  category: MemoryCategory;
+  importance_score: number;
+  stored_at: string | null;
+  stored_ago: string;
+  importance_trend: "rising" | "stable" | "decaying" | string;
+  last_accessed_by_agent: string | null;
 };
 
 type Envelope<T> = {
@@ -48,14 +160,22 @@ type Envelope<T> = {
   timestamp: string;
 };
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000").replace(/\/$/, "");
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, "");
 const SESSION_ROUTE = "/__memoryos/session";
+export const MANAGE_UUI_TOKEN_KEY = "memoryos_manage_uui_token";
+
+function manageUuiTokenOverride(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(MANAGE_UUI_TOKEN_KEY);
+}
 
 async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const tokenOverride = manageUuiTokenOverride();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(tokenOverride ? { "X-MemoryOS-UUI": tokenOverride } : {}),
       ...(init.headers || {}),
     },
     credentials: "include",
@@ -107,7 +227,7 @@ export async function clearSessionToken(): Promise<void> {
 export async function registerIdentity(payload: {
   email: string;
   display_name?: string;
-}): Promise<Envelope<{ id: string; email: string | null; message: string | null }>> {
+}): Promise<Envelope<{ id: string; uui_token: string; email: string | null; message: string | null }>> {
   return apiRequest("/v1/uui/register", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -143,7 +263,7 @@ export async function getGlobalAgentProfile(agentId: string): Promise<Envelope<G
   });
 }
 
-export async function listMyGrants(): Promise<Envelope<{ grants: PermissionGrant[]; memory_count: number; email: string | null; display_name: string | null }>> {
+export async function listMyGrants(): Promise<Envelope<{ grants: PermissionGrant[]; memory_count: number; email: string | null; display_name: string | null; masked_uui_token?: string | null }>> {
   return apiRequest("/v1/uui/me/grants", {
     method: "GET",
   });
@@ -164,6 +284,107 @@ export async function createGrant(payload: {
 export async function revokeGrant(grantId: string): Promise<Envelope<{ revoked: boolean }>> {
   return apiRequest(`/v1/uui/me/grants/${grantId}`, {
     method: "DELETE",
+  });
+}
+
+export async function updateGrantCategories(
+  grantId: string,
+  categoriesAllowed: MemoryCategory[],
+): Promise<Envelope<PermissionGrant>> {
+  return apiRequest(`/v1/uui/me/grants/${grantId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ categories_allowed: categoriesAllowed }),
+  });
+}
+
+export async function previewMemoriesForAgent(
+  agentId: string,
+  categories: MemoryCategory[],
+): Promise<Envelope<MemoryPreview[]>> {
+  const params = new URLSearchParams({
+    agent_id: agentId,
+    categories: categories.join(","),
+  });
+  return apiRequest(`/v1/uui/me/memories/preview?${params.toString()}`, {
+    method: "GET",
+  });
+}
+
+export async function getMyDomainProfile(): Promise<Envelope<DomainProfile>> {
+  return apiRequest("/v1/uui/me/domain-profile", {
+    method: "GET",
+  });
+}
+
+export async function listMyMemories(paramsInput: UserMemoryListParams = {}): Promise<UserMemoryList> {
+  const params = new URLSearchParams();
+  if (paramsInput.categories?.length) params.set("categories", paramsInput.categories.join(","));
+  if (paramsInput.category) params.set("category", paramsInput.category);
+  if (paramsInput.cursor) params.set("cursor", paramsInput.cursor);
+  if (paramsInput.limit) params.set("limit", String(paramsInput.limit));
+  if (paramsInput.sort) params.set("sort", paramsInput.sort);
+  return apiRequest(`/v1/uui/me/memories?${params.toString()}`, {
+    method: "GET",
+  });
+}
+
+export async function flagMyMemory(
+  memoryId: string,
+  payload: { reason: UserMemoryFlagReason; correction?: string | null },
+): Promise<Envelope<{ flagged: boolean; memory_id: string }>> {
+  return apiRequest(`/v1/uui/me/memories/${memoryId}/flag`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function unflagMyMemory(memoryId: string): Promise<Envelope<{ unflagged: boolean; memory_id: string }>> {
+  return apiRequest(`/v1/uui/me/memories/${memoryId}/flag`, {
+    method: "DELETE",
+  });
+}
+
+export async function correctMyMemory(
+  memoryId: string,
+  correctedContent: string,
+): Promise<Envelope<{ corrected: boolean; new_memory_id: string }>> {
+  return apiRequest(`/v1/uui/me/memories/${memoryId}/correct`, {
+    method: "POST",
+    body: JSON.stringify({ corrected_content: correctedContent }),
+  });
+}
+
+export async function deleteMyMemory(memoryId: string): Promise<Envelope<{ deleted: boolean; memory_id: string }>> {
+  return apiRequest(`/v1/uui/me/memories/${memoryId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getMyMemoryHistory(memoryId: string): Promise<Envelope<UniversalMemoryVersion[]>> {
+  return apiRequest(`/v1/uui/me/memories/${memoryId}/history`, {
+    method: "GET",
+  });
+}
+
+export async function listMyClarifications(): Promise<Envelope<{ clarifications: ClarificationItem[] }>> {
+  return apiRequest("/v1/uui/me/clarifications", {
+    method: "GET",
+  });
+}
+
+export async function answerClarification(
+  clarificationId: string,
+  payload: { answer: "A" | "B" | "both" | "neither"; free_text?: string | null },
+): Promise<Envelope<{ resolved: boolean; clarification_id: string }>> {
+  return apiRequest(`/v1/uui/me/clarifications/${clarificationId}/answer`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function regenerateToken(): Promise<Envelope<{ uui_token: string; masked_uui_token: string; regenerated_at: string }>> {
+  return apiRequest("/v1/uui/token/regenerate", {
+    method: "POST",
   });
 }
 
