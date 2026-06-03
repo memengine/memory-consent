@@ -6,96 +6,103 @@ import { useSearchParams } from "next/navigation";
 import {
   createGrant,
   getCurrentSessionUser,
+  getMyDomainProfile,
   getGlobalAgentProfile,
   persistSessionToken,
+  previewMemoriesForAgent,
   registerIdentity,
   sendLoginCode,
   verifyLoginCode,
   type GlobalAgentProfile,
+  type DomainProfile,
+  type MemoryPreview,
   type MemoryCategory,
   type SessionUser,
 } from "@/lib/api";
+import { getDomainLabels } from "@/data/category-labels";
 
 const ALL_CATEGORIES: MemoryCategory[] = [
+  "expertise",
   "preference",
-  "fact",
   "goal",
+  "fact",
   "procedure",
   "relationship",
-  "expertise",
 ];
 
-const CATEGORY_META: Record<MemoryCategory, { label: string; detail: string }> = {
+const MANAGE_URL = (process.env.NEXT_PUBLIC_MEMORYOS_MANAGE_URL || "/manage").replace(/\/$/, "");
+
+const CATEGORY_META: Record<MemoryCategory, { label: string; detail: string; short: string }> = {
   preference: {
     label: "Your preferences and settings",
+    short: "Preferences",
     detail: "Communication style, defaults, and how you like your tools to behave.",
   },
   expertise: {
     label: "Your skills and knowledge",
+    short: "Skills",
     detail: "Topics, tools, and domains you know well.",
   },
   goal: {
     label: "Your goals and plans",
+    short: "Goals",
     detail: "What you are trying to accomplish over time.",
   },
   procedure: {
     label: "Your workflows and habits",
+    short: "Workflows",
     detail: "How you prefer to work through recurring tasks.",
   },
   fact: {
     label: "General facts about you",
+    short: "Facts",
     detail: "Stable profile facts that help apps personalize correctly.",
   },
   relationship: {
     label: "Your relationships and context",
+    short: "People",
     detail: "People, teams, and collaboration context you choose to share.",
   },
 };
 
+const DURATION_OPTIONS: Array<{ value: DurationChoice; label: string; helper: string }> = [
+  { value: "30", label: "30 days", helper: "Best for trying an app." },
+  { value: "90", label: "90 days", helper: "Good for short projects." },
+  { value: "365", label: "1 year", helper: "Useful for long-running workflows." },
+  { value: "forever", label: "Until I revoke", helper: "You can revoke anytime." },
+];
+
 type AuthMode = "signin" | "signup";
 type AuthStep = "checking" | "email" | "otp" | "ready";
 type DurationChoice = "30" | "90" | "365" | "forever" | "";
-
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "flex",
-  justifyContent: "center",
-  padding: "32px 20px 48px",
-};
-
-const shellStyle: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 1080,
-  borderRadius: 28,
-  background: "rgba(255,255,255,0.92)",
-  border: "1px solid rgba(148,163,184,0.28)",
-  boxShadow: "0 28px 80px rgba(15,23,42,0.12)",
-  padding: 32,
-  display: "grid",
-  gap: 24,
-};
-
-const fieldStyle: React.CSSProperties = {
-  width: "100%",
-  borderRadius: 16,
-  border: "1px solid #cbd5e1",
-  background: "#fff",
-  padding: "14px 16px",
-  fontSize: 16,
-  color: "#0f172a",
-};
+type ConsentStage = "identity" | "review" | "return";
 
 function parseRedirect(searchParams: URLSearchParams) {
   return {
     agentId: searchParams.get("agent_id"),
     redirectUri: searchParams.get("redirect_uri"),
     state: searchParams.get("state"),
+    categories: parseRequestedCategories(searchParams.get("categories")),
   };
+}
+
+function parseRequestedCategories(rawCategories: string | null): MemoryCategory[] {
+  if (!rawCategories) {
+    return [];
+  }
+
+  const available = new Set(ALL_CATEGORIES);
+  const requested = rawCategories
+    .split(",")
+    .map((category) => category.trim())
+    .filter((category): category is MemoryCategory => available.has(category as MemoryCategory));
+
+  return Array.from(new Set(requested));
 }
 
 function buildRedirectUri(redirectUri: string | null, status: "granted" | "denied", state: string | null) {
   if (!redirectUri) {
-    const fallback = new URL("/manage", window.location.origin);
+    const fallback = new URL("/complete", window.location.origin);
     fallback.searchParams.set("status", status);
     if (state) {
       fallback.searchParams.set("state", state);
@@ -133,9 +140,95 @@ function agentInitials(name: string) {
     .join("");
 }
 
+function redirectHost(redirectUri: string | null) {
+  if (!redirectUri) {
+    return "MemoryOS completion page";
+  }
+  try {
+    return new URL(redirectUri).host;
+  } catch {
+    return "the requesting app";
+  }
+}
+
+function currentStage(authStep: AuthStep, grantedTo: string | null): ConsentStage {
+  if (grantedTo) {
+    return "return";
+  }
+  if (authStep === "ready") {
+    return "review";
+  }
+  return "identity";
+}
+
+function StepRail({ stage }: { stage: ConsentStage }) {
+  const steps: Array<{ id: ConsentStage; eyebrow: string; title: string }> = [
+    { id: "identity", eyebrow: "Step 1", title: "Confirm identity" },
+    { id: "review", eyebrow: "Step 2", title: "Review access" },
+    { id: "return", eyebrow: "Step 3", title: "Return to app" },
+  ];
+
+  return (
+    <ol className="consent-steps" aria-label="Consent progress">
+      {steps.map((step) => (
+        <li
+          className={`consent-step ${stage === step.id ? "is-active" : ""}`}
+          key={step.id}
+          aria-current={stage === step.id ? "step" : undefined}
+        >
+          <span>{step.eyebrow}</span>
+          <strong>{step.title}</strong>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function TrustPanel({
+  redirectUri,
+  sessionUser,
+}: {
+  redirectUri: string | null;
+  sessionUser: SessionUser | null;
+}) {
+  return (
+    <aside className="consent-trust-panel" aria-label="MemoryOS trust notes">
+      <div className="trust-orb">M</div>
+      <div>
+        <span className="section-kicker">Permission center</span>
+        <h2>You stay in control.</h2>
+      </div>
+      <p>
+        This screen is here so an app can ask clearly before reading your AI memory. Access is read-only,
+        category-based, and revocable anytime.
+      </p>
+      <div className="trust-list">
+        <div>
+          <strong>Choose categories</strong>
+          <span>Uncheck anything you do not want this app to see.</span>
+        </div>
+        <div>
+          <strong>Pick an expiry</strong>
+          <span>No duration is selected until you choose one.</span>
+        </div>
+        <div>
+          <strong>Return destination</strong>
+          <span>{redirectHost(redirectUri)}</span>
+        </div>
+        {sessionUser?.email ? (
+          <div>
+            <strong>Signed in as</strong>
+            <span>{sessionUser.email}</span>
+          </div>
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
 function ConsentPageContent() {
   const searchParams = useSearchParams();
-  const { agentId, redirectUri, state } = useMemo(
+  const { agentId, redirectUri, state, categories: urlRequestedCategories } = useMemo(
     () => parseRedirect(searchParams),
     [searchParams],
   );
@@ -157,6 +250,10 @@ function ConsentPageContent() {
   const [consentError, setConsentError] = useState("");
   const [submittingConsent, setSubmittingConsent] = useState(false);
   const [grantedTo, setGrantedTo] = useState<string | null>(null);
+  const [memoryPreview, setMemoryPreview] = useState<MemoryPreview[] | null>(null);
+  const [domainProfile, setDomainProfile] = useState<DomainProfile | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   async function loadSession() {
     try {
@@ -178,6 +275,7 @@ function ConsentPageContent() {
     if (authStep !== "ready" || !agentId) {
       return;
     }
+
     let active = true;
     setProfileLoading(true);
     setConsentError("");
@@ -210,8 +308,58 @@ function ConsentPageContent() {
     if (!profile) {
       return;
     }
-    setSelectedCategories(profile.default_categories_requested ?? []);
-  }, [profile]);
+    if (urlRequestedCategories.length > 0) {
+      setSelectedCategories(urlRequestedCategories);
+      return;
+    }
+    if (profile.default_categories_requested?.length) {
+      setSelectedCategories(profile.default_categories_requested);
+      return;
+    }
+    setSelectedCategories(ALL_CATEGORIES);
+  }, [profile, urlRequestedCategories]);
+
+  useEffect(() => {
+    if (authStep !== "ready" || !profile || !agentId || selectedCategories.length === 0) {
+      setMemoryPreview(null);
+      setDomainProfile(null);
+      return;
+    }
+
+    let active = true;
+    setPreviewLoading(true);
+    void previewMemoriesForAgent(agentId, selectedCategories)
+      .then((response) => {
+        if (active) {
+          setMemoryPreview(response.data);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setMemoryPreview(null);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPreviewLoading(false);
+        }
+      });
+    void getMyDomainProfile()
+      .then((response) => {
+        if (active) {
+          setDomainProfile(response.data);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setDomainProfile(null);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [agentId, authStep, profile, selectedCategories]);
 
   useEffect(() => {
     if (authStep !== "otp") {
@@ -349,7 +497,19 @@ function ConsentPageContent() {
     window.location.href = buildRedirectUri(redirectUri, "denied", state);
   }
 
+  const stage = currentStage(authStep, grantedTo);
+  const domainLabels = getDomainLabels(profile?.owner_tenant?.domain_schema);
   const deniedCategories = ALL_CATEGORIES.filter((category) => !selectedCategories.includes(category));
+  const requestedCategories =
+    urlRequestedCategories.length > 0
+      ? urlRequestedCategories
+      : profile?.default_categories_requested?.length
+        ? profile.default_categories_requested
+        : ALL_CATEGORIES;
+  const showEdTechProfilePreview =
+    profile?.owner_tenant?.domain_schema === "edtech" &&
+    Boolean(domainProfile?.edtech_profile) &&
+    (domainProfile?.edtech_profile?.total_edtech_memories ?? 0) >= 3;
   const allowDisabled =
     !profile ||
     !agentId ||
@@ -359,514 +519,392 @@ function ConsentPageContent() {
     Boolean(grantedTo);
 
   return (
-    <main style={pageStyle}>
-      <section style={shellStyle}>
-        <div style={{ display: "grid", gap: 10 }}>
-          <span
-            style={{
-              display: "inline-flex",
-              width: "fit-content",
-              borderRadius: 999,
-              padding: "6px 12px",
-              background: "#dbeafe",
-              color: "#1d4ed8",
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-            }}
-          >
-            Memory permissions
-          </span>
-          <h1 style={{ margin: 0, fontSize: "clamp(2.2rem, 5vw, 4rem)", lineHeight: 1.04 }}>
-            Review this app&apos;s request
-          </h1>
-          <p style={{ margin: 0, fontSize: 18, lineHeight: 1.65, color: "#475569" }}>
-            MemoryOS stores your AI memory across apps. You control what each app can see.
-          </p>
+    <main className="consent-page">
+      <section className="consent-shell">
+        <div className="consent-hero">
+          <div className="consent-hero-copy">
+            <span className="pill">Memory permissions</span>
+            <h1>Review this app&apos;s request</h1>
+            <p>
+              MemoryOS stores your AI memory across apps. You decide exactly what this app can read,
+              for how long, and what stays private.
+            </p>
+          </div>
+          <StepRail stage={stage} />
         </div>
 
-        {!agentId ? (
-          <div
-            style={{
-              borderRadius: 18,
-              border: "1px solid #fecaca",
-              background: "#fff1f2",
-              color: "#9f1239",
-              padding: 16,
-              fontSize: 16,
-            }}
-          >
-            Missing agent_id in the consent link.
-          </div>
-        ) : null}
-
-        {authStep !== "ready" ? (
-          <section
-            style={{
-              borderRadius: 24,
-              border: "1px solid #dbeafe",
-              background: "#f8fbff",
-              padding: 24,
-              display: "grid",
-              gap: 18,
-            }}
-          >
-            <div style={{ display: "grid", gap: 6 }}>
-              <strong style={{ fontSize: 24 }}>Sign in to continue</strong>
-              <span style={{ color: "#475569", fontSize: 15, lineHeight: 1.6 }}>
-                Use your MemoryOS email to continue, or create an account inline if this is your first time.
-              </span>
-            </div>
-
-            <label style={{ display: "grid", gap: 8 }}>
-              <span style={{ fontWeight: 700, fontSize: 15 }}>Email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
-                style={fieldStyle}
-              />
-            </label>
-
-            {authMode === "signup" ? (
-              <label style={{ display: "grid", gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 15 }}>Display name (optional)</span>
-                <input
-                  type="text"
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="How should MemoryOS refer to you?"
-                  style={fieldStyle}
-                />
-              </label>
+        <div className="consent-layout">
+          <div className="consent-main-column">
+            {!agentId ? (
+              <div className="alert alert-danger" role="alert">
+                Missing agent_id in the consent link.
+              </div>
             ) : null}
 
-            {authStep === "otp" ? (
-              <div style={{ display: "grid", gap: 10 }}>
-                <span style={{ fontWeight: 700, fontSize: 15 }}>
-                  Enter the 6-digit code we sent to {email}
-                </span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  autoFocus
-                  value={otp}
-                  onChange={(event) => {
-                    const numeric = event.target.value.replace(/\D/g, "").slice(0, 6);
-                    setOtp(numeric);
-                  }}
-                  placeholder="123456"
-                  style={{
-                    ...fieldStyle,
-                    letterSpacing: "0.35em",
-                    textAlign: "center",
-                    fontSize: 24,
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleVerify()}
-                  disabled={otp.length !== 6 || authLoading}
-                  style={{
-                    borderRadius: 16,
-                    border: "1px solid #2563eb",
-                    background: "#2563eb",
-                    color: "#fff",
-                    padding: "14px 18px",
-                    fontWeight: 700,
-                    cursor: otp.length !== 6 || authLoading ? "not-allowed" : "pointer",
-                    opacity: otp.length !== 6 || authLoading ? 0.65 : 1,
-                  }}
-                >
-                  {authLoading ? "Verifying..." : "Verify"}
-                </button>
-              </div>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => void (authMode === "signup" ? handleCreateAccount() : handleSendCode())}
-                  disabled={authLoading || !email.trim()}
-                  style={{
-                    borderRadius: 16,
-                    border: "1px solid #2563eb",
-                    background: "#2563eb",
-                    color: "#fff",
-                    padding: "14px 18px",
-                    fontWeight: 700,
-                    cursor: authLoading || !email.trim() ? "not-allowed" : "pointer",
-                    opacity: authLoading || !email.trim() ? 0.65 : 1,
-                  }}
-                >
-                  {authLoading
-                    ? authMode === "signup"
-                      ? "Creating account..."
-                      : "Sending login code..."
-                    : authMode === "signup"
-                      ? "Create account"
-                      : "Send login code"}
-                </button>
-
-                <div style={{ fontSize: 15, color: "#475569" }}>
-                  {authMode === "signin" ? "No account yet?" : "Already have an account?"}{" "}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAuthMode(authMode === "signin" ? "signup" : "signin");
-                      setAuthError("");
-                    }}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      color: "#2563eb",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      padding: 0,
-                    }}
-                  >
-                    {authMode === "signin" ? "Create one — takes 10 seconds" : "Use email login instead"}
-                  </button>
+            {authStep !== "ready" ? (
+              <section className="consent-card auth-card">
+                <div className="section-heading">
+                  <span className="section-kicker">Secure sign in</span>
+                  <h2>Sign in to continue</h2>
+                  <p>
+                    Enter your MemoryOS email, or create your account inline if this is your first time.
+                  </p>
                 </div>
-              </>
-            )}
 
-            {authError ? (
-              <div
-                style={{
-                  borderRadius: 18,
-                  border: "1px solid #fecaca",
-                  background: "#fff1f2",
-                  color: "#9f1239",
-                  padding: 16,
-                  fontSize: 15,
-                }}
-              >
-                {authError}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
+                <label className="field">
+                  <span>Email</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                  />
+                </label>
 
-        {authStep === "ready" && grantedTo ? (
-          <div
-            style={{
-              borderRadius: 24,
-              border: "1px solid #bbf7d0",
-              background: "#f0fdf4",
-              color: "#166534",
-              padding: 24,
-              fontSize: 18,
-              fontWeight: 700,
-            }}
-          >
-            Access granted to {grantedTo}. Redirecting you back now...
-          </div>
-        ) : null}
+                {authMode === "signup" ? (
+                  <label className="field">
+                    <span>Display name (optional)</span>
+                    <input
+                      type="text"
+                      value={displayName}
+                      onChange={(event) => setDisplayName(event.target.value)}
+                      placeholder="How should MemoryOS refer to you?"
+                      autoComplete="name"
+                    />
+                  </label>
+                ) : null}
 
-        {authStep === "ready" && !grantedTo ? (
-          <>
-            {profileLoading ? (
-              <div
-                style={{
-                  borderRadius: 24,
-                  border: "1px solid #dbeafe",
-                  background: "#f8fbff",
-                  padding: 24,
-                  color: "#475569",
-                }}
-              >
-                Loading app details...
-              </div>
-            ) : null}
-
-            {profile ? (
-              <>
-                <section
-                  style={{
-                    borderRadius: 24,
-                    border: "1px solid #dbeafe",
-                    background: "#f8fbff",
-                    padding: 24,
-                    display: "grid",
-                    gap: 18,
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
-                    <div
-                      style={{
-                        width: 72,
-                        height: 72,
-                        borderRadius: 22,
-                        overflow: "hidden",
-                        background: "#dbeafe",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "#1d4ed8",
-                        fontWeight: 800,
-                        fontSize: 24,
+                {authStep === "otp" ? (
+                  <div className="otp-panel">
+                    <div>
+                      <strong>Enter the 6-digit code we sent to {email}</strong>
+                      <p>Verification happens automatically when all 6 digits are entered.</p>
+                    </div>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      maxLength={6}
+                      autoFocus
+                      value={otp}
+                      onChange={(event) => {
+                        const numeric = event.target.value.replace(/\D/g, "").slice(0, 6);
+                        setOtp(numeric);
                       }}
-                    >
-                      {profile.logo_url ? (
-                        <img
-                          src={profile.logo_url}
-                          alt={`${profile.name} logo`}
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        />
-                      ) : (
-                        agentInitials(profile.name)
-                      )}
-                    </div>
-                    <div style={{ display: "grid", gap: 6, flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <strong style={{ fontSize: 28 }}>{profile.name}</strong>
-                        <span
-                          style={{
-                            borderRadius: 999,
-                            padding: "6px 12px",
-                            background: profile.is_verified ? "#dcfce7" : "#fef3c7",
-                            color: profile.is_verified ? "#166534" : "#92400e",
-                            fontWeight: 700,
-                            fontSize: 13,
-                          }}
-                        >
-                          {profile.is_verified ? "Verified by MemoryOS" : "Unverified app"}
-                        </span>
-                      </div>
-                      {profile.website_url ? (
-                        <a
-                          href={profile.website_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ color: "#64748b", fontSize: 14, textDecoration: "none" }}
-                        >
-                          {profile.website_url}
-                        </a>
-                      ) : null}
-                      {profile.description ? (
-                        <p style={{ margin: 0, color: "#475569", lineHeight: 1.6 }}>
-                          {profile.description}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {!profile.is_verified ? (
-                    <div
-                      style={{
-                        borderRadius: 18,
-                        border: "1px solid #f59e0b",
-                        background: "#fff7ed",
-                        color: "#9a3412",
-                        padding: 18,
-                        fontSize: 15,
-                        lineHeight: 1.6,
-                        fontWeight: 700,
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          void handleVerify();
+                        }
                       }}
-                    >
-                      This app has not been verified by MemoryOS. Only continue if you trust {profile.name}.
-                    </div>
-                  ) : null}
-                </section>
-
-                <section
-                  style={{
-                    borderRadius: 24,
-                    border: "1px solid #bfdbfe",
-                    background: "#fff",
-                    padding: 24,
-                    display: "grid",
-                    gap: 18,
-                  }}
-                >
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <strong style={{ fontSize: 24 }}>This app is requesting access to:</strong>
-                    <span style={{ color: "#475569", fontSize: 15 }}>
-                      Uncheck anything you do not want to share. If nothing is checked, access cannot be granted.
-                    </span>
-                  </div>
-
-                  <div style={{ display: "grid", gap: 14 }}>
-                    {profile.default_categories_requested.map((category) => {
-                      const checked = selectedCategories.includes(category);
-                      return (
-                        <label
-                          key={category}
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "auto 1fr",
-                            gap: 14,
-                            alignItems: "start",
-                            borderRadius: 18,
-                            border: `1px solid ${checked ? "#86efac" : "#cbd5e1"}`,
-                            background: checked ? "#f0fdf4" : "#fff",
-                            padding: 18,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleCategory(category)}
-                            style={{ marginTop: 4 }}
-                          />
-                          <div style={{ display: "grid", gap: 4 }}>
-                            <strong style={{ fontSize: 17 }}>{CATEGORY_META[category].label}</strong>
-                            <span style={{ color: "#475569", fontSize: 15 }}>
-                              {CATEGORY_META[category].detail}
-                            </span>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <section
-                  style={{
-                    borderRadius: 24,
-                    border: "1px solid #e2e8f0",
-                    background: "#fff",
-                    padding: 24,
-                    display: "grid",
-                    gap: 18,
-                  }}
-                >
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <strong style={{ fontSize: 24 }}>This app will NOT access:</strong>
-                    <span style={{ color: "#475569", fontSize: 15 }}>
-                      Everything listed here stays private from this app.
-                    </span>
-                  </div>
-                  <div style={{ display: "grid", gap: 12 }}>
-                    {deniedCategories.map((category) => (
-                      <div
-                        key={category}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "auto 1fr",
-                          gap: 14,
-                          borderRadius: 18,
-                          border: "1px solid #e2e8f0",
-                          background: "#f8fafc",
-                          padding: 16,
-                          color: "#64748b",
+                      placeholder="123456"
+                      aria-label="One-time login code"
+                      className="otp-input"
+                    />
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() => void handleVerify()}
+                        disabled={otp.length !== 6 || authLoading}
+                      >
+                        {authLoading ? "Verifying..." : "Verify"}
+                      </button>
+                      <button
+                        type="button"
+                        className="quiet-button"
+                        onClick={() => {
+                          setAuthStep("email");
+                          setOtp("");
+                          setAuthError("");
                         }}
                       >
-                        <span style={{ fontWeight: 700, fontSize: 18, lineHeight: "22px" }}>x</span>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <strong style={{ color: "#334155", fontSize: 16 }}>{CATEGORY_META[category].label}</strong>
-                          <span style={{ fontSize: 15 }}>{CATEGORY_META[category].detail}</span>
-                        </div>
-                      </div>
-                    ))}
+                        Use a different email
+                      </button>
+                    </div>
                   </div>
-                </section>
-
-                <section
-                  style={{
-                    borderRadius: 24,
-                    border: "1px solid #e2e8f0",
-                    background: "#fff",
-                    padding: 24,
-                    display: "grid",
-                    gap: 14,
-                  }}
-                >
-                  <strong style={{ fontSize: 24 }}>Permission duration</strong>
-                  {[
-                    ["30", "30 days"],
-                    ["90", "90 days"],
-                    ["365", "1 year"],
-                    ["forever", "Until I revoke"],
-                  ].map(([value, label]) => (
-                    <label
-                      key={value}
-                      style={{
-                        display: "flex",
-                        gap: 12,
-                        alignItems: "center",
-                        borderRadius: 16,
-                        border: "1px solid #e2e8f0",
-                        background: duration === value ? "#eff6ff" : "#fff",
-                        padding: "14px 16px",
-                      }}
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => void (authMode === "signup" ? handleCreateAccount() : handleSendCode())}
+                      disabled={authLoading || !email.trim()}
                     >
-                      <input
-                        type="radio"
-                        name="duration"
-                        value={value}
-                        checked={duration === value}
-                        onChange={(event) => setDuration(event.target.value as DurationChoice)}
-                      />
-                      <span style={{ fontSize: 15 }}>{label}</span>
-                    </label>
-                  ))}
-                </section>
-              </>
+                      {authLoading
+                        ? authMode === "signup"
+                          ? "Creating account..."
+                          : "Sending login code..."
+                        : authMode === "signup"
+                          ? "Create account"
+                          : "Send login code"}
+                    </button>
+
+                    <div className="inline-switch">
+                      {authMode === "signin" ? "No account yet?" : "Already have an account?"}{" "}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode(authMode === "signin" ? "signup" : "signin");
+                          setAuthError("");
+                        }}
+                      >
+                        {authMode === "signin" ? "Create one - takes 10 seconds" : "Use email login instead"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {authError ? (
+                  <div className="alert alert-danger" role="alert">
+                    {authError}
+                  </div>
+                ) : null}
+              </section>
             ) : null}
 
-            {consentError ? (
-              <div
-                style={{
-                  borderRadius: 18,
-                  border: "1px solid #fecaca",
-                  background: "#fff1f2",
-                  color: "#9f1239",
-                  padding: 16,
-                  fontSize: 15,
-                }}
-              >
-                {consentError}
+            {authStep === "ready" && grantedTo ? (
+              <div className="success-card" role="status">
+                <span className="success-icon">OK</span>
+                <div>
+                  <strong>Access granted to {grantedTo}</strong>
+                  <p>Redirecting you back to {redirectHost(redirectUri)}...</p>
+                </div>
               </div>
             ) : null}
 
-            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => void handleAllowAccess()}
-                disabled={allowDisabled}
-                style={{
-                  flex: 1,
-                  minWidth: 220,
-                  borderRadius: 16,
-                  border: "1px solid #2563eb",
-                  background: "#2563eb",
-                  color: "#fff",
-                  padding: "15px 18px",
-                  fontWeight: 700,
-                  cursor: allowDisabled ? "not-allowed" : "pointer",
-                  opacity: allowDisabled ? 0.65 : 1,
-                }}
-              >
-                {submittingConsent ? "Granting access..." : "Allow Access"}
-              </button>
-              <button
-                type="button"
-                onClick={handleDeny}
-                style={{
-                  flex: 1,
-                  minWidth: 220,
-                  borderRadius: 16,
-                  border: "1px solid #94a3b8",
-                  background: "#fff",
-                  color: "#0f172a",
-                  padding: "15px 18px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                Deny
-              </button>
-            </div>
-          </>
-        ) : null}
+            {authStep === "ready" && !grantedTo ? (
+              <>
+                {profileLoading ? (
+                  <section className="consent-card">
+                    <div className="skeleton-line" />
+                    <div className="skeleton-line short" />
+                  </section>
+                ) : null}
 
-        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "#64748b" }}>
-          Powered by MemoryOS — You control your AI memory. Manage permissions anytime at consent.memoryos.io/manage
+                {profile ? (
+                  <>
+                    <section className="agent-card">
+                      <div className="agent-logo" aria-hidden={!profile.logo_url}>
+                        {profile.logo_url ? (
+                          <img src={profile.logo_url} alt={`${profile.name} logo`} />
+                        ) : (
+                          agentInitials(profile.name)
+                        )}
+                      </div>
+                      <div className="agent-body">
+                        <div className="agent-title-row">
+                          <h2>{profile.name}</h2>
+                          <span className={`verify-badge ${profile.is_verified ? "verified" : "unverified"}`}>
+                            {profile.is_verified ? "Verified by MemoryOS" : "Unverified app"}
+                          </span>
+                        </div>
+                        {profile.website_url ? (
+                          <a href={profile.website_url} target="_blank" rel="noreferrer" className="agent-link">
+                            {profile.website_url}
+                          </a>
+                        ) : null}
+                        {profile.description ? <p>{profile.description}</p> : null}
+                      </div>
+                    </section>
+
+                    {!profile.is_verified ? (
+                      <div className="alert alert-warning strong-warning" role="alert">
+                        <strong>This app has not been verified by MemoryOS.</strong>
+                        <span>Only continue if you trust {profile.name}.</span>
+                      </div>
+                    ) : null}
+
+                    <section className="consent-card">
+                      <div className="section-heading">
+                        <span className="section-kicker">Requested access</span>
+                        <h2>This app is requesting access to:</h2>
+                        <p>
+                          We preselected the categories this app asked for. You can add or remove categories before
+                          approving. Access cannot be granted with zero categories.
+                        </p>
+                      </div>
+
+                      <div className="category-grid">
+                        {ALL_CATEGORIES.map((category) => {
+                          const checked = selectedCategories.includes(category);
+                          const wasRequested = requestedCategories.includes(category);
+                          return (
+                            <label className={`category-card ${checked ? "selected" : ""}`} key={category}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleCategory(category)}
+                              />
+                              <span className="category-check" aria-hidden="true">
+                                {checked ? "Allowed" : "Off"}
+                              </span>
+                              <strong>{domainLabels[category]}</strong>
+                              <small>{CATEGORY_META[category].detail}</small>
+                              <em>{wasRequested ? "Requested by this app" : "Optional"}</em>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </section>
+
+                    {memoryPreview !== null ? (
+                      <section className="consent-card preview-card">
+                        <button
+                          type="button"
+                          className="preview-toggle"
+                          onClick={() => setPreviewOpen((value) => !value)}
+                          disabled={previewLoading}
+                        >
+                          <span>
+                            {previewLoading
+                              ? "Checking what this app would see..."
+                              : memoryPreview.length > 0
+                                ? `Preview what this agent would read (${memoryPreview.length} memories)`
+                                : "What this agent would see"}
+                          </span>
+                          <strong>{previewOpen ? "Hide" : "Show"}</strong>
+                        </button>
+                        {previewOpen ? (
+                          showEdTechProfilePreview && domainProfile?.edtech_profile ? (
+                            <div className="edtech-preview-card">
+                              <span className="memory-category-pill">This agent will see your academic profile</span>
+                              <strong>
+                                {[domainProfile.edtech_profile.grade_level, domainProfile.edtech_profile.board]
+                                  .filter(Boolean)
+                                  .join(" ") || "Academic profile"}
+                                {domainProfile.edtech_profile.days_to_exam !== null
+                                  ? ` | Exam in ${domainProfile.edtech_profile.days_to_exam} days`
+                                  : ""}
+                              </strong>
+                              <p>
+                                Weak:{" "}
+                                {domainProfile.edtech_profile.weak_topics.length > 0
+                                  ? `${domainProfile.edtech_profile.weak_topics
+                                      .slice(0, 2)
+                                      .map((topic) => topic.topic)
+                                      .join(", ")} (${domainProfile.edtech_profile.weak_topics.length} topics)`
+                                  : "none recorded"}
+                              </p>
+                              <p>
+                                Learning style:{" "}
+                                {String(
+                                  domainProfile.edtech_profile.explanation_style?.primary ??
+                                    domainProfile.edtech_profile.language_profile?.explanation_preference ??
+                                    "not recorded",
+                                )}
+                              </p>
+                            </div>
+                          ) : memoryPreview.length > 0 ? (
+                            <div className="memory-preview-list">
+                              {memoryPreview.map((memory, index) => (
+                                <article className="memory-preview-item" key={`${memory.category}-${index}`}>
+                                  <div>
+                                    <span className="memory-category-pill">{domainLabels[memory.category]}</span>
+                                    <span className="importance-pill">
+                                      {memory.importance_score >= 7
+                                        ? "High importance"
+                                        : memory.importance_score >= 4
+                                          ? "Medium"
+                                          : "Low"}
+                                    </span>
+                                  </div>
+                                  <p>{memory.content_preview}</p>
+                                  <small>Stored {memory.stored_ago}</small>
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="alert alert-info">
+                              You have no stored memories yet. {profile.owner_tenant?.domain_schema === "edtech" ? "This agent will build your academic profile as you use it." : "This agent will start building your memory profile as you use it."}
+                            </div>
+                          )
+                        ) : null}
+                      </section>
+                    ) : null}
+
+                    <section className="consent-card muted-card">
+                      <div className="section-heading compact">
+                        <span className="section-kicker">Private by default</span>
+                        <h2>This app will NOT access:</h2>
+                      </div>
+                      <div className="denied-grid">
+                        {deniedCategories.length > 0 ? (
+                          deniedCategories.map((category) => (
+                            <div className="denied-chip" key={category}>
+                              <span aria-hidden="true">x</span>
+                              <strong>{domainLabels[category]}</strong>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="muted-text">
+                            You currently allow all available memory categories.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="consent-card">
+                      <div className="section-heading">
+                        <span className="section-kicker">Duration</span>
+                        <h2>How long should access last?</h2>
+                        <p>No option is selected by default. Choose one to continue.</p>
+                      </div>
+                      <div className="duration-grid" role="radiogroup" aria-label="Permission duration">
+                        {DURATION_OPTIONS.map((option) => (
+                          <label className={`duration-card ${duration === option.value ? "selected" : ""}`} key={option.value}>
+                            <input
+                              type="radio"
+                              name="duration"
+                              value={option.value}
+                              checked={duration === option.value}
+                              onChange={(event) => setDuration(event.target.value as DurationChoice)}
+                            />
+                            <strong>{option.label}</strong>
+                            <span>{option.helper}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </section>
+                  </>
+                ) : null}
+
+                {consentError ? (
+                  <div className="alert alert-danger" role="alert">
+                    {consentError}
+                  </div>
+                ) : null}
+
+                <div className="consent-action-bar">
+                  <div>
+                    <strong>Ready to decide?</strong>
+                    <span>
+                      {selectedCategories.length} category{selectedCategories.length === 1 ? "" : "ies"} selected
+                      {duration ? `, ${DURATION_OPTIONS.find((option) => option.value === duration)?.label.toLowerCase()}` : ""}
+                    </span>
+                  </div>
+                  <div className="decision-buttons">
+                    <button
+                      type="button"
+                      className="allow-button"
+                      onClick={() => void handleAllowAccess()}
+                      disabled={allowDisabled}
+                    >
+                      {submittingConsent ? "Granting access..." : "Allow Access"}
+                    </button>
+                    <button type="button" className="deny-button" onClick={handleDeny}>
+                      Deny
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
+
+          <TrustPanel redirectUri={redirectUri} sessionUser={sessionUser} />
+        </div>
+
+        <p className="consent-footer">
+          Powered by MemoryOS - You control your AI memory. Manage permissions anytime at {MANAGE_URL}
         </p>
       </section>
     </main>
@@ -877,8 +915,8 @@ export default function ConsentPage() {
   return (
     <Suspense
       fallback={
-        <main style={pageStyle}>
-          <section style={shellStyle}>Loading consent flow...</section>
+        <main className="consent-page">
+          <section className="consent-shell">Loading consent flow...</section>
         </main>
       }
     >
