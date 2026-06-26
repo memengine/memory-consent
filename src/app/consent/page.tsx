@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import {
+  clearSessionToken,
   createGrant,
   getCurrentSessionUser,
   getMyDomainProfile,
@@ -82,6 +83,7 @@ function parseRedirect(searchParams: URLSearchParams) {
     agentId: searchParams.get("agent_id"),
     redirectUri: searchParams.get("redirect_uri"),
     state: searchParams.get("state"),
+    linkToken: searchParams.get("link_token"),
     categories: parseRequestedCategories(searchParams.get("categories")),
   };
 }
@@ -187,9 +189,11 @@ function StepRail({ stage }: { stage: ConsentStage }) {
 function TrustPanel({
   redirectUri,
   sessionUser,
+  onSwitchAccount,
 }: {
   redirectUri: string | null;
   sessionUser: SessionUser | null;
+  onSwitchAccount: () => void;
 }) {
   return (
     <aside className="consent-trust-panel" aria-label="MemoryOS trust notes">
@@ -219,6 +223,9 @@ function TrustPanel({
           <div>
             <strong>Signed in as</strong>
             <span>{sessionUser.email}</span>
+            <button type="button" className="link-button" onClick={onSwitchAccount}>
+              Use a different Passport
+            </button>
           </div>
         ) : null}
       </div>
@@ -228,7 +235,7 @@ function TrustPanel({
 
 function ConsentPageContent() {
   const searchParams = useSearchParams();
-  const { agentId, redirectUri, state, categories: urlRequestedCategories } = useMemo(
+  const { agentId, redirectUri, state, linkToken, categories: urlRequestedCategories } = useMemo(
     () => parseRedirect(searchParams),
     [searchParams],
   );
@@ -240,6 +247,7 @@ function ConsentPageContent() {
   const [otp, setOtp] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [passportMissing, setPassportMissing] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const submittedOtpRef = useRef<string | null>(null);
 
@@ -254,6 +262,7 @@ function ConsentPageContent() {
   const [domainProfile, setDomainProfile] = useState<DomainProfile | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const approvedRedirectUri = profile?.redirect_uri || null;
 
   async function loadSession() {
     try {
@@ -265,6 +274,16 @@ function ConsentPageContent() {
       setSessionUser(null);
       setAuthStep("email");
     }
+  }
+
+  async function switchPassportAccount() {
+    await clearSessionToken();
+    setSessionUser(null);
+    setEmail("");
+    setOtp("");
+    setAuthError("");
+    setConsentError("");
+    setAuthStep("email");
   }
 
   useEffect(() => {
@@ -385,14 +404,22 @@ function ConsentPageContent() {
 
     setAuthLoading(true);
     setAuthError("");
+    setPassportMissing(false);
     try {
       const response = await sendLoginCode(email.trim());
       if (!response.data.sent) {
-        setAuthError(
-          response.data.reason === "rate_limited"
-            ? "Too many login code requests. Try again in a little while."
-            : "We could not send a login code right now.",
-        );
+        if (response.data.reason === "passport_not_found") {
+          setPassportMissing(true);
+          setAuthError(
+            "No Memory Passport exists for this email. Create one here to continue.",
+          );
+        } else {
+          setAuthError(
+            response.data.reason === "rate_limited"
+              ? "Too many login code requests. Try again in a little while."
+              : "Email delivery failed. Check the address and try again shortly.",
+          );
+        }
         return;
       }
       setAuthStep("otp");
@@ -478,6 +505,7 @@ function ConsentPageContent() {
     try {
       await createGrant({
         agent_id: agentId,
+        link_token: linkToken,
         categories_allowed: selectedCategories,
         access_type: "read_only",
         expires_at: computeExpiryIso(duration),
@@ -485,7 +513,7 @@ function ConsentPageContent() {
       const grantedName = profile?.name ?? "this app";
       setGrantedTo(grantedName);
       window.setTimeout(() => {
-        window.location.href = buildRedirectUri(redirectUri, "granted", state);
+        window.location.href = buildRedirectUri(approvedRedirectUri, "granted", state);
       }, 2000);
     } catch (error) {
       setConsentError(error instanceof Error ? error.message : "Unable to save this permission.");
@@ -494,7 +522,7 @@ function ConsentPageContent() {
   }
 
   function handleDeny() {
-    window.location.href = buildRedirectUri(redirectUri, "denied", state);
+    window.location.href = buildRedirectUri(approvedRedirectUri, "denied", state);
   }
 
   const stage = currentStage(authStep, grantedTo);
@@ -656,7 +684,21 @@ function ConsentPageContent() {
 
                 {authError ? (
                   <div className="alert alert-danger" role="alert">
-                    {authError}
+                    <p>{authError}</p>
+                    {passportMissing ? (
+                      <button
+                        type="button"
+                        className="quiet-button compact inline-action"
+                        onClick={() => {
+                          setAuthMode("signup");
+                          setAuthStep("email");
+                          setAuthError("");
+                          setPassportMissing(false);
+                        }}
+                      >
+                        Create Memory Passport
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </section>
@@ -667,7 +709,7 @@ function ConsentPageContent() {
                 <span className="success-icon">OK</span>
                 <div>
                   <strong>Access granted to {grantedTo}</strong>
-                  <p>Redirecting you back to {redirectHost(redirectUri)}...</p>
+                  <p>Redirecting you back to {redirectHost(approvedRedirectUri)}...</p>
                 </div>
               </div>
             ) : null}
@@ -900,7 +942,11 @@ function ConsentPageContent() {
             ) : null}
           </div>
 
-          <TrustPanel redirectUri={redirectUri} sessionUser={sessionUser} />
+          <TrustPanel
+            redirectUri={approvedRedirectUri}
+            sessionUser={sessionUser}
+            onSwitchAccount={() => void switchPassportAccount()}
+          />
         </div>
 
         <p className="consent-footer">
