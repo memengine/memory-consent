@@ -14,6 +14,7 @@ export type GlobalAgentProfile = {
   description: string | null;
   logo_url: string | null;
   website_url: string | null;
+  redirect_uri: string;
   is_verified: boolean;
   default_categories_requested: MemoryCategory[];
   owner_tenant?: {
@@ -108,8 +109,40 @@ export type UniversalMemoryAudit = {
   last_accessed_days_ago: number | null;
   source_agent_name: string | null;
   source_agent_access_revoked: boolean;
+  source_type: "passport_agent" | "org_connection" | "user_correction" | "system";
+  source_organisation_name: string | null;
   stored_at: string | null;
   is_flagged: boolean;
+  claim_status: "active" | "disputed" | "archived" | null;
+  claim_revision_status: "asserted" | "activated" | "superseded" | "disputed" | "archived" | null;
+  source_access_status: "active" | "revoked" | "expired" | "not_required" | null;
+  provenance_recorded_at: string | null;
+  provenance_reason: string | null;
+};
+
+export type OrganisationDirectoryEntry = {
+  id: string;
+  display_name: string;
+  logo_url: string | null;
+  website_url: string | null;
+  category: "ecommerce" | "banking" | "travel" | "telecom" | "edtech" | "saas" | "other";
+  oauth_enabled: boolean;
+  link_token_enabled: boolean;
+  is_verified: boolean;
+};
+
+export type VerifiedOrganisationConnection = {
+  id: string;
+  organisation_id: string;
+  organisation_name: string;
+  organisation_logo_url: string | null;
+  category: OrganisationDirectoryEntry["category"];
+  organisation_is_verified: boolean;
+  connection_method: "oauth" | "oidc" | "link_token";
+  verified_at: string;
+  last_verified_at: string;
+  is_active: boolean;
+  memory_count: number;
 };
 
 export type UserMemoryList = {
@@ -269,8 +302,40 @@ export async function listMyGrants(): Promise<Envelope<{ grants: PermissionGrant
   });
 }
 
+export async function listOrganisations(paramsInput: {
+  search?: string;
+  category?: OrganisationDirectoryEntry["category"] | "";
+  limit?: number;
+} = {}): Promise<Envelope<OrganisationDirectoryEntry[]>> {
+  const params = new URLSearchParams();
+  if (paramsInput.search?.trim()) params.set("search", paramsInput.search.trim());
+  if (paramsInput.category) params.set("category", paramsInput.category);
+  params.set("limit", String(paramsInput.limit ?? 50));
+  return apiRequest(`/v1/uui/organisations?${params.toString()}`, { method: "GET" });
+}
+
+export async function listMyConnections(): Promise<Envelope<VerifiedOrganisationConnection[]>> {
+  return apiRequest("/v1/uui/me/connections", { method: "GET" });
+}
+
+export async function initiateOrganisationOAuth(
+  organisationId: string,
+): Promise<Envelope<{ authorization_url: string }>> {
+  return apiRequest("/v1/uui/oauth/initiate", {
+    method: "POST",
+    body: JSON.stringify({ org_directory_id: organisationId }),
+  });
+}
+
+export async function disconnectOrganisation(
+  connectionId: string,
+): Promise<Envelope<{ disconnected: boolean }>> {
+  return apiRequest(`/v1/uui/me/connections/${connectionId}`, { method: "DELETE" });
+}
+
 export async function createGrant(payload: {
   agent_id: string;
+  link_token?: string | null;
   categories_allowed: MemoryCategory[];
   access_type: GrantAccessType;
   expires_at: string | null;
