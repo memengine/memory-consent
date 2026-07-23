@@ -86,8 +86,31 @@ export default function RegisterPage() {
         <div className="consent-hero-copy">
           <span className="pill">Memory Passport</span>
           <h1>Create your MemoryOS account</h1>
-          <p>This page is optional. New users can also create an account inline during the consent flow.</p>
+          <p>One identity for the memories and permissions you carry between AI products.</p>
         </div>
+
+        <section className="passport-mode-grid" aria-label="How Memory Passport works">
+          <article>
+            <span className="mode-number">01</span>
+            <div>
+              <h2>Use it immediately</h2>
+              <p>
+                Passport-enabled AI agents can remember you across sessions as soon as you approve
+                them. No organisation account is required.
+              </p>
+            </div>
+          </article>
+          <article>
+            <span className="mode-number">02</span>
+            <div>
+              <h2>Connect existing accounts</h2>
+              <p>
+                Link supported bank, commerce, travel, education, or SaaS accounts from your
+                permission center. You initiate every connection.
+              </p>
+            </div>
+          </article>
+        </section>
 
         {!token ? (
           <form onSubmit={handleSubmit} className="consent-card auth-card">
@@ -165,6 +188,9 @@ export default function RegisterPage() {
             >
               I have saved my token
             </button>
+            <p className="muted-text">
+              Next, open Connections in your permission center to link supported organisations.
+            </p>
           </section>
         )}
 
