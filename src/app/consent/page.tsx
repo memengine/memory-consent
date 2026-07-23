@@ -200,23 +200,22 @@ function TrustPanel({
       <div className="trust-orb">M</div>
       <div>
         <span className="section-kicker">Permission center</span>
-        <h2>You stay in control.</h2>
+        <h2>Your memory stays private.</h2>
       </div>
       <p>
-        This screen is here so an app can ask clearly before reading your AI memory. Access is read-only,
-        category-based, and revocable anytime.
+        Approve only the memory categories this app needs. Access is read-only, time-limited, and revocable anytime.
       </p>
       <div className="trust-list">
         <div>
-          <strong>Choose categories</strong>
-          <span>Uncheck anything you do not want this app to see.</span>
+          <strong>Categories</strong>
+          <span>Choose exactly what this app can read.</span>
         </div>
         <div>
-          <strong>Pick an expiry</strong>
-          <span>No duration is selected until you choose one.</span>
+          <strong>Expiry</strong>
+          <span>Set a time limit before approving.</span>
         </div>
         <div>
-          <strong>Return destination</strong>
+          <strong>After approval</strong>
           <span>{redirectHost(redirectUri)}</span>
         </div>
         {sessionUser?.email ? (
@@ -552,10 +551,9 @@ function ConsentPageContent() {
         <div className="consent-hero">
           <div className="consent-hero-copy">
             <span className="pill">Memory permissions</span>
-            <h1>Review this app&apos;s request</h1>
+            <h1>Approve memory access</h1>
             <p>
-              MemoryOS stores your AI memory across apps. You decide exactly what this app can read,
-              for how long, and what stays private.
+              Review what this app wants to read from your MemoryOS Passport. Nothing is shared until you approve it.
             </p>
           </div>
           <StepRail stage={stage} />
@@ -573,9 +571,9 @@ function ConsentPageContent() {
               <section className="consent-card auth-card">
                 <div className="section-heading">
                   <span className="section-kicker">Secure sign in</span>
-                  <h2>Sign in to continue</h2>
+                  <h2>Confirm your identity</h2>
                   <p>
-                    Enter your MemoryOS email, or create your account inline if this is your first time.
+                    Use the email attached to your MemoryOS Passport. New users can create a Passport here.
                   </p>
                 </div>
 
@@ -606,12 +604,14 @@ function ConsentPageContent() {
                 {authStep === "otp" ? (
                   <div className="otp-panel">
                     <div>
-                      <strong>Enter the 6-digit code we sent to {email}</strong>
-                      <p>Verification happens automatically when all 6 digits are entered.</p>
+                      <strong>Check your inbox</strong>
+                      <p>Enter the 6-digit code sent to <span className="inline-email">{email}</span>.</p>
                     </div>
                     <input
-                      type="number"
+                      type="text"
                       inputMode="numeric"
+                      autoComplete="one-time-code"
+                      pattern="[0-9]*"
                       maxLength={6}
                       autoFocus
                       value={otp}
@@ -624,7 +624,7 @@ function ConsentPageContent() {
                           void handleVerify();
                         }
                       }}
-                      placeholder="123456"
+                      placeholder="000000"
                       aria-label="One-time login code"
                       className="otp-input"
                     />
@@ -635,7 +635,7 @@ function ConsentPageContent() {
                         onClick={() => void handleVerify()}
                         disabled={otp.length !== 6 || authLoading}
                       >
-                        {authLoading ? "Verifying..." : "Verify"}
+                        {authLoading ? "Checking..." : "Continue"}
                       </button>
                       <button
                         type="button"
@@ -646,7 +646,7 @@ function ConsentPageContent() {
                           setAuthError("");
                         }}
                       >
-                        Use a different email
+                        Change email
                       </button>
                     </div>
                   </div>
