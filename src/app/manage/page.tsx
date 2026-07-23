@@ -4,19 +4,25 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { EdTechProfileCard } from "@/components/edtech-profile-card";
+import { ConnectionCard } from "@/components/connection-card";
 import { MemoryCard } from "@/components/memory-card";
+import { OrgCard } from "@/components/org-card";
 import { getDomainFieldLabel, getDomainLabels } from "@/data/category-labels";
 import {
   answerClarification,
+  clearSessionToken,
   correctMyMemory,
   deleteMyData,
   deleteMyMemory,
+  disconnectOrganisation,
   flagMyMemory,
   getCurrentSessionUser,
   getMyDomainProfile,
   listMyClarifications,
+  listMyConnections,
   listMyGrants,
   listMyMemories,
+  listOrganisations,
   MANAGE_UUI_TOKEN_KEY,
   persistSessionToken,
   regenerateToken,
@@ -25,17 +31,20 @@ import {
   unflagMyMemory,
   updateGrantCategories,
   verifyLoginCode,
+  initiateOrganisationOAuth,
   type ClarificationItem,
   type DomainProfile,
   type MemoryCategory,
   type PermissionGrant,
+  type OrganisationDirectoryEntry,
+  type VerifiedOrganisationConnection,
   type UniversalMemoryAudit,
   type UserMemoryFlagReason,
   type UserMemorySort,
 } from "@/lib/api";
 
 type AuthStep = "checking" | "email" | "otp" | "ready";
-type ManageTab = "grants" | "memories" | "questions";
+type ManageTab = "grants" | "connections" | "memories" | "questions";
 
 const ALL_CATEGORIES: MemoryCategory[] = [
   "expertise",
@@ -51,6 +60,7 @@ const MANAGE_URL = (process.env.NEXT_PUBLIC_MEMORYOS_MANAGE_URL || "/manage").re
 type LoadedState = {
   grants: PermissionGrant[];
   memoryCount: number;
+  email: string | null;
   displayName: string | null;
   maskedToken: string | null;
 };
@@ -74,6 +84,7 @@ function formatExpiry(value: string | null) {
 }
 
 function initials(name: string | null) {
+
   return (name || "App")
     .split(/\s+/)
     .filter(Boolean)
@@ -118,6 +129,16 @@ function storedText(days: number) {
   if (days === 1) return "1 day ago";
   return `${days} days ago`;
 }
+
+
+const MEMORY_FILTER_LABELS: Record<MemoryCategory, string> = {
+  expertise: "Skills",
+  preference: "Preferences",
+  goal: "Goals",
+  fact: "Facts",
+  procedure: "Procedures",
+  relationship: "People",
+};
 
 function clarificationOptions(item: ClarificationItem): { a: string; b: string } {
   if (item.value_a || item.value_b) {
@@ -178,14 +199,25 @@ function ManagePageContent() {
   const searchParams = useSearchParams();
   const revokeId = searchParams.get("revoke");
   const requestedTab = searchParams.get("tab");
+  const connectionResult = searchParams.get("connection");
+  const connectionOrganisation = searchParams.get("org");
+  const connectionFailure = searchParams.get("reason");
   const initialTab: ManageTab =
-    requestedTab === "memories" || requestedTab === "questions" || requestedTab === "grants" ? requestedTab : "grants";
+    requestedTab === "memories" ||
+    requestedTab === "questions" ||
+    requestedTab === "connections" ||
+    requestedTab === "grants"
+      ? requestedTab
+      : connectionResult
+        ? "connections"
+        : "grants";
 
   const [authStep, setAuthStep] = useState<AuthStep>("checking");
   const [activeTab, setActiveTab] = useState<ManageTab>(initialTab);
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [passportMissing, setPassportMissing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [tokenOverride, setTokenOverride] = useState<string | null>(null);
@@ -214,7 +246,15 @@ function ManagePageContent() {
   const [memorySort, setMemorySort] = useState<UserMemorySort>("importance");
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryActionId, setMemoryActionId] = useState<string | null>(null);
-  const [introDismissed, setIntroDismissed] = useState(false);
+  const [connections, setConnections] = useState<VerifiedOrganisationConnection[]>([]);
+  const [organisations, setOrganisations] = useState<OrganisationDirectoryEntry[]>([]);
+  const [organisationSearch, setOrganisationSearch] = useState("");
+  const [organisationCategory, setOrganisationCategory] = useState<OrganisationDirectoryEntry["category"] | "">("");
+  const [connectingOrganisationId, setConnectingOrganisationId] = useState<string | null>(null);
+  const [disconnectingConnectionId, setDisconnectingConnectionId] = useState<string | null>(null);
+  const [confirmDisconnectId, setConfirmDisconnectId] = useState<string | null>(null);
+  const [linkInstructions, setLinkInstructions] = useState<OrganisationDirectoryEntry | null>(null);
+  const browseOrganisationsRef = useRef<HTMLDivElement | null>(null);
 
   const dominantDomain = useMemo(
     () => loaded?.grants.find((grant) => grant.agent_domain_schema)?.agent_domain_schema ?? "generic",
@@ -255,12 +295,36 @@ function ManagePageContent() {
     setLoaded({
       grants: response.data.grants,
       memoryCount: response.data.memory_count,
+      email: response.data.email,
       displayName: response.data.display_name,
       maskedToken: response.data.masked_uui_token ?? null,
     });
     setAuthStep("ready");
     await loadClarifications();
     await loadDomainProfile();
+    await loadConnections();
+  }
+
+  async function loadConnections() {
+    try {
+      const response = await listMyConnections();
+      setConnections(response.data);
+    } catch {
+      setConnections([]);
+    }
+  }
+
+  async function loadOrganisationDirectory() {
+    try {
+      const response = await listOrganisations({
+        search: organisationSearch,
+        category: organisationCategory,
+        limit: 50,
+      });
+      setOrganisations(response.data);
+    } catch (directoryError) {
+      setError(directoryError instanceof Error ? directoryError.message : "Unable to load connectors.");
+    }
   }
 
   async function loadUserMemories(reset = false) {
@@ -294,27 +358,62 @@ function ManagePageContent() {
 
   useEffect(() => {
     setTokenOverride(window.localStorage.getItem(MANAGE_UUI_TOKEN_KEY));
-    setIntroDismissed(window.localStorage.getItem("memories_tab_intro_dismissed") === "true");
     void hydrateSession();
   }, []);
 
   useEffect(() => {
-    if (requestedTab === "memories" || requestedTab === "questions" || requestedTab === "grants") {
+    if (
+      requestedTab === "memories" ||
+      requestedTab === "questions" ||
+      requestedTab === "connections" ||
+      requestedTab === "grants"
+    ) {
       setActiveTab(requestedTab);
     }
   }, [requestedTab]);
 
   useEffect(() => {
+    if (!connectionResult) return;
+    setActiveTab("connections");
+    if (connectionResult === "success") {
+      setNotice(
+        `Successfully connected${connectionOrganisation ? ` to ${connectionOrganisation}` : ""}.`,
+      );
+      void loadConnections();
+    } else if (connectionResult === "failed") {
+      setError(`Connection failed: ${(connectionFailure || "unknown error").replace(/_/g, " ")}`);
+    }
+  }, [connectionResult, connectionOrganisation, connectionFailure]);
+
+  useEffect(() => {
     if (authStep !== "ready") return;
     const id = window.setInterval(() => {
       void loadClarifications();
+      if (activeTab === "connections") {
+        void loadConnections();
+      }
       if (activeTab === "memories") {
         void loadUserMemories(true);
         void loadDomainProfile();
       }
     }, activeTab === "memories" ? 120000 : 60000);
-    return () => window.clearInterval(id);
+
+  return () => window.clearInterval(id);
   }, [authStep, activeTab, memoryCategory, memorySort]);
+
+  useEffect(() => {
+    if (authStep === "ready" && activeTab === "connections") {
+      void loadConnections();
+      void loadOrganisationDirectory();
+    }
+  }, [authStep, activeTab]);
+
+  useEffect(() => {
+    if (authStep !== "ready" || activeTab !== "connections") return;
+    const timeout = window.setTimeout(() => void loadOrganisationDirectory(), 250);
+
+  return () => window.clearTimeout(timeout);
+  }, [authStep, activeTab, organisationSearch, organisationCategory]);
 
   useEffect(() => {
     if (authStep === "ready" && activeTab === "memories") {
@@ -350,14 +449,22 @@ function ManagePageContent() {
     }
     setAuthLoading(true);
     setError("");
+    setPassportMissing(false);
     try {
       const response = await sendLoginCode(email.trim());
       if (!response.data.sent) {
-        setError(
-          response.data.reason === "rate_limited"
-            ? "Too many login code requests. Try again soon."
-            : "We could not send a login code right now.",
-        );
+        if (response.data.reason === "passport_not_found") {
+          setPassportMissing(true);
+          setError(
+            "No Memory Passport exists for this email. Create one first, then return here to sign in.",
+          );
+        } else {
+          setError(
+            response.data.reason === "rate_limited"
+              ? "Too many login code requests. Try again soon."
+              : "Email delivery failed. Check the address and try again shortly.",
+          );
+        }
         return;
       }
       setAuthStep("otp");
@@ -399,6 +506,41 @@ function ManagePageContent() {
       setNotice("Access revoked.");
     } catch (revokeError) {
       setError(revokeError instanceof Error ? revokeError.message : "Unable to revoke access.");
+    }
+  }
+
+  async function connectOrganisation(organisation: OrganisationDirectoryEntry) {
+    setConnectingOrganisationId(organisation.id);
+    setError("");
+    try {
+      const response = await initiateOrganisationOAuth(organisation.id);
+      window.location.assign(response.data.authorization_url);
+    } catch (connectionError) {
+      setError(
+        connectionError instanceof Error
+          ? connectionError.message
+          : "Unable to start the secure connection.",
+      );
+      setConnectingOrganisationId(null);
+    }
+  }
+
+  async function confirmDisconnect(connectionId: string) {
+    setDisconnectingConnectionId(connectionId);
+    setError("");
+    try {
+      await disconnectOrganisation(connectionId);
+      setConnections((current) => current.filter((connection) => connection.id !== connectionId));
+      setConfirmDisconnectId(null);
+      setNotice("Connector disconnected. Existing memories were kept.");
+    } catch (connectionError) {
+      setError(
+        connectionError instanceof Error
+          ? connectionError.message
+          : "Unable to disconnect this connector.",
+      );
+    } finally {
+      setDisconnectingConnectionId(null);
     }
   }
 
@@ -520,7 +662,13 @@ function ManagePageContent() {
     setError("");
     try {
       const response = await deleteMyData();
-      setLoaded({ grants: [], memoryCount: 0, displayName: loaded?.displayName ?? null, maskedToken: null });
+      setLoaded({
+        grants: [],
+        memoryCount: 0,
+        email: loaded?.email ?? null,
+        displayName: loaded?.displayName ?? null,
+        maskedToken: null,
+      });
       setMemoryItems([]);
       setMemoryTotal(0);
       setNotice(`Your Memory Passport was deleted. ${response.data.memories_removed} memories were removed.`);
@@ -548,12 +696,8 @@ function ManagePageContent() {
     }
   }
 
-  function dismissIntro() {
-    window.localStorage.setItem("memories_tab_intro_dismissed", "true");
-    setIntroDismissed(true);
-  }
 
-  async function clearTokenOverride() {
+async function clearTokenOverride() {
     window.localStorage.removeItem(MANAGE_UUI_TOKEN_KEY);
     setTokenOverride(null);
     setLoaded(null);
@@ -563,13 +707,89 @@ function ManagePageContent() {
     await hydrateSession();
   }
 
+  async function switchPassportAccount() {
+    await clearSessionToken();
+    window.localStorage.removeItem(MANAGE_UUI_TOKEN_KEY);
+    setTokenOverride(null);
+    setLoaded(null);
+    setConnections([]);
+    setMemoryItems([]);
+    setMemoryTotal(0);
+    setEmail("");
+    setOtp("");
+    setError("");
+    setNotice("Signed out. Enter the email for the Passport you want to manage.");
+    setAuthStep("email");
+  }
+
+
+  const grantCount = loaded?.grants.length ?? 0;
+  const connectionCount = connections.length;
+  const questionCount = visibleClarifications.length;
+  const passportName = loaded?.displayName || loaded?.email || "your Passport";
+  const nextAction = questionCount > 0
+    ? {
+        tab: "questions" as ManageTab,
+        label: "Answer pending questions",
+        text: `${questionCount} memory conflict${questionCount === 1 ? "" : "s"} need your decision.`,
+      }
+    : grantCount === 0
+      ? {
+          tab: "grants" as ManageTab,
+          label: "Connect an AI app",
+          text: "No AI apps can read your Memory Passport yet.",
+        }
+      : {
+          tab: "memories" as ManageTab,
+          label: "Review remembered facts",
+          text: "Check what approved AI apps can use before your next session.",
+        };
+  const tabItems: Array<{
+    id: ManageTab;
+    step: string;
+    title: string;
+    description: string;
+    count: string;
+  }> = [
+    {
+      id: "grants",
+      step: "01",
+      title: "Apps with access",
+      description: "Edit or revoke AI agents that can read selected memory categories.",
+      count: String(grantCount),
+    },
+    {
+      id: "connections",
+      step: "02",
+      title: "Connected accounts",
+      description: "Link or disconnect organisations that verified an account handoff.",
+      count: String(connectionCount),
+    },
+    {
+      id: "memories",
+      step: "03",
+      title: "What is remembered",
+      description: "Correct, flag, inspect provenance, or remove individual memories.",
+      count: String(memoryTotal || loaded?.memoryCount || 0),
+    },
+    {
+      id: "questions",
+      step: "04",
+      title: "Needs your decision",
+      description: "Resolve personal conflicts that MemoryOS should not guess.",
+      count: String(questionCount),
+    },
+  ];
   return (
     <main className="consent-page">
       <section className="consent-shell">
-        <div className="consent-hero-copy">
-          <span className="pill">Permission center</span>
-          <h1>Your Memory Permissions</h1>
-          <p>Adjust agent access, review what AI products know about you, and keep your memory profile accurate.</p>
+        <div className="consent-hero-copy permission-hero-copy">
+          <span className="pill">Memory Passport</span>
+          <h1>Your AI memory control center</h1>
+          <p>
+            See who can access your memory, connect verified accounts, inspect what is stored,
+            and resolve conflicts before AI agents use the wrong context.
+          </p>
         </div>
 
         {authStep !== "ready" ? (
@@ -608,7 +828,16 @@ function ManagePageContent() {
           </section>
         ) : null}
 
-        {error ? <div className="alert alert-danger">{error}</div> : null}
+        {error ? (
+          <div className="alert alert-danger">
+            <p>{error}</p>
+            {passportMissing ? (
+              <a className="quiet-button compact inline-action" href="/register">
+                Create Memory Passport
+              </a>
+            ) : null}
+          </div>
+        ) : null}
         {notice ? <div className="alert alert-info">{notice}</div> : null}
         {tokenOverride ? (
           <div className="alert alert-info token-override-alert">
@@ -626,25 +855,88 @@ function ManagePageContent() {
 
         {authStep === "ready" && loaded ? (
           <div className="manage-grid">
-            <div className="manage-tabs" role="tablist" aria-label="Manage MemoryOS">
-              <button type="button" className={activeTab === "grants" ? "active" : ""} onClick={() => setActiveTab("grants")}>
-                My Grants
-              </button>
-              <button type="button" className={activeTab === "memories" ? "active" : ""} onClick={() => setActiveTab("memories")}>
-                My Memories
-              </button>
-              <button type="button" className={activeTab === "questions" ? "active" : ""} onClick={() => setActiveTab("questions")}>
-                Pending Questions {visibleClarifications.length > 0 ? <span>{visibleClarifications.length}</span> : null}
-              </button>
-            </div>
+
+            <section className="passport-overview-panel" aria-label="Memory Passport overview">
+              <div className="passport-status-card primary">
+                <span className="section-kicker">Signed in as</span>
+                <h2>{passportName}</h2>
+                <p>{loaded.email || "This Passport is active on this device."}</p>
+                <button
+                  type="button"
+                  className="quiet-button compact"
+                  onClick={() => void switchPassportAccount()}
+                >
+                  Switch Passport account
+                </button>
+              </div>
+              <div className="passport-status-card action">
+                <span className="section-kicker">Recommended next step</span>
+                <h2>{nextAction.label}</h2>
+                <p>{nextAction.text}</p>
+                <button type="button" className="primary-button compact" onClick={() => setActiveTab(nextAction.tab)}>
+                  Go there
+                </button>
+              </div>
+              <div className="passport-score-strip">
+                <div>
+                  <strong>{grantCount}</strong>
+                  <span>apps</span>
+                </div>
+                <div>
+                  <strong>{connectionCount}</strong>
+                  <span>connections</span>
+                </div>
+                <div>
+                  <strong>{memoryTotal || loaded.memoryCount}</strong>
+                  <span>memories</span>
+                </div>
+                <div className={questionCount > 0 ? "needs-attention" : ""}>
+                  <strong>{questionCount}</strong>
+                  <span>questions</span>
+                </div>
+              </div>
+            </section>
+
+            <nav className="permission-stepper" role="tablist" aria-label="Memory Passport sections">
+              {tabItems.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={activeTab === item.id ? "active" : ""}
+                  onClick={() => setActiveTab(item.id)}
+                  aria-selected={activeTab === item.id}
+                >
+                  <span className="step-number">{item.step}</span>
+                  <span className="step-copy">
+                    <strong>{item.title}</strong>
+                    <small>{item.description}</small>
+                  </span>
+                  <span className="step-count">{item.count}</span>
+                </button>
+              ))}
+            </nav>
 
             {activeTab === "grants" ? (
-              <>
-                <section className="consent-card stat-card">
-                  <strong>Memory stats</strong>
-                  <span>{loaded.memoryCount}</span>
-                  <p>Total memories stored across all agents{loaded.displayName ? ` for ${loaded.displayName}` : ""}.</p>
-                </section>
+              <section className="manage-tab-panel grants-panel">
+                <div className="grant-summary-grid">
+                  <section className="consent-card stat-card grant-summary-card">
+                    <strong>Memory stats</strong>
+                    <span>{loaded.memoryCount}</span>
+                    <p>Total memories stored across all agents{loaded.displayName ? ` for ${loaded.displayName}` : ""}.</p>
+                  </section>
+
+                  <section className="consent-card security-card grant-token-card">
+                    <div className="section-heading">
+                      <span className="section-kicker">Security</span>
+                      <h2>Your MemoryOS Token</h2>
+                      <p>Only shown in full when first created or regenerated.</p>
+                    </div>
+                    <code>{loaded.maskedToken || "uui_****"}</code>
+                    <button type="button" className="danger-outline-button" onClick={() => void handleRegenerateToken()}>
+                      Regenerate token
+                    </button>
+                  </section>
+                </div>
 
                 {loaded.grants.length === 0 ? (
                   <div className="empty-card">
@@ -655,6 +947,7 @@ function ManagePageContent() {
                   <div className="grant-list">
                     {loaded.grants.map((grant) => {
                       const audit = grantMemories[grant.id];
+
                       return (
                         <article className="grant-card" key={grant.id}>
                           <div className="grant-header">
@@ -702,6 +995,7 @@ function ManagePageContent() {
                                 {ALL_CATEGORIES.map((category) => {
                                   const checked = editCategories.includes(category);
                                   const wasGranted = grant.categories_allowed.includes(category);
+
                                   return (
                                     <label className={`category-card ${checked ? "selected" : ""}`} key={category}>
                                       <input type="checkbox" checked={checked} onChange={() => toggleEditCategory(category)} />
@@ -750,43 +1044,131 @@ function ManagePageContent() {
                   </div>
                 )}
 
-                <section className="consent-card security-card">
-                  <div className="section-heading">
-                    <span className="section-kicker">Security</span>
-                    <h2>Your MemoryOS Token</h2>
-                    <p>For safety, the full token is only shown when it is first created or regenerated.</p>
-                  </div>
-                  <code>{loaded.maskedToken || "uui_****"}</code>
-                  <button type="button" className="danger-outline-button" onClick={() => void handleRegenerateToken()}>
-                    Regenerate token
-                  </button>
-                </section>
-
                 <button type="button" className="link-button danger-link" onClick={() => setDeleteModalOpen(true)}>
                   Delete all my data
                 </button>
-              </>
+              </section>
+            ) : null}
+
+            {activeTab === "connections" ? (
+              <section className="manage-tab-panel connections-panel">
+                <div className="section-heading">
+                  <span className="section-kicker">Connectors</span>
+                  <h2>Your connected services</h2>
+                  <p>
+                    You control every connector. Companies cannot add themselves, and connectors
+                    do not decide which AI agents can read your Passport.
+                  </p>
+                </div>
+
+                {connections.length === 0 ? (
+                  <div className="empty-card connection-empty-state">
+                    <strong>No connectors yet</strong>
+                    <p>
+                      Passport-enabled agents already work without connectors. Add one only when
+                      you want context from an existing service account linked to your Passport.
+                    </p>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => browseOrganisationsRef.current?.scrollIntoView({ behavior: "smooth" })}
+                    >
+                      Browse connectors
+                    </button>
+                  </div>
+                ) : (
+                  <div className="connection-list">
+                    {connections.map((connection) => (
+                      <ConnectionCard
+                        key={connection.id}
+                        connection={connection}
+                        confirming={confirmDisconnectId === connection.id}
+                        loading={disconnectingConnectionId === connection.id}
+                        onAskDisconnect={() => setConfirmDisconnectId(connection.id)}
+                        onCancelDisconnect={() => setConfirmDisconnectId(null)}
+                        onDisconnect={() => void confirmDisconnect(connection.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <div className="directory-section" ref={browseOrganisationsRef}>
+                  <div className="section-heading">
+                    <span className="section-kicker">Connector directory</span>
+                    <h2>Connect a service account</h2>
+                    <p>
+                      OAuth connectors start here. Secure-link connectors start inside that
+                      company&apos;s app after you sign in there. MemoryOS stores only a verified
+                      reference, never your password or raw account ID.
+                    </p>
+                  </div>
+                  <div className="directory-toolbar">
+                    <input
+                      type="search"
+                      value={organisationSearch}
+                      onChange={(event) => setOrganisationSearch(event.target.value)}
+                      placeholder="Search connectors"
+                      aria-label="Search connectors"
+                    />
+                    <div className="category-pills">
+                      {[
+                        ["", "All"],
+                        ["banking", "Banking"],
+                        ["ecommerce", "E-commerce"],
+                        ["travel", "Travel"],
+                        ["telecom", "Telecom"],
+                        ["edtech", "EdTech"],
+                        ["saas", "SaaS"],
+                      ].map(([value, label]) => (
+                        <button
+                          type="button"
+                          key={value || "all"}
+                          className={organisationCategory === value ? "active" : ""}
+                          onClick={() =>
+                            setOrganisationCategory(value as OrganisationDirectoryEntry["category"] | "")
+                          }
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {organisations.length === 0 ? (
+                    <div className="empty-card">
+                      <strong>No matching connectors</strong>
+                      <p>
+                        The connector directory is curated. Secure-link connectors are opened
+                        from the service&apos;s own account settings.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="organisation-grid">
+                      {organisations.map((organisation) => (
+                        <OrgCard
+                          key={organisation.id}
+                          organisation={organisation}
+                          isConnected={connections.some(
+                            (connection) => connection.organisation_id === organisation.id,
+                          )}
+                          loading={connectingOrganisationId === organisation.id}
+                          onConnect={(entry) => void connectOrganisation(entry)}
+                          onShowLinkInstructions={setLinkInstructions}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
             ) : null}
 
             {activeTab === "memories" ? (
               <section className="manage-tab-panel">
                 <div className="section-heading">
-                  <span className="section-kicker">Your Memory Profile</span>
-                  <h2>Everything AI agents know about you</h2>
-                  <p>Flag anything wrong, correct stale facts, or remove memories you no longer want agents to use.</p>
+                  <span className="section-kicker">Memory profile</span>
+                  <h2>Stored memories</h2>
+                  <p>Review, correct, or remove the context approved agents can use.</p>
                 </div>
-
-                {!introDismissed ? (
-                  <div className="alert alert-info intro-callout">
-                    <strong>You control your AI memory</strong>
-                    <p>These memories help AI products personalise their responses for you. Changes take effect immediately.</p>
-                    <button type="button" className="quiet-button" onClick={dismissIntro}>
-                      Got it
-                    </button>
-                  </div>
-                ) : null}
-
-                {domainProfile?.detected_domain === "edtech" && domainProfile.edtech_profile ? (
+{domainProfile?.detected_domain === "edtech" && domainProfile.edtech_profile ? (
                   <EdTechProfileCard
                     profile={domainProfile.edtech_profile}
                     defaultExpanded={
@@ -817,7 +1199,7 @@ function ManagePageContent() {
                         className={memoryCategory === category ? "active" : ""}
                         onClick={() => setMemoryCategory(category)}
                       >
-                        {labels[category]}
+                        {MEMORY_FILTER_LABELS[category]}
                       </button>
                     ))}
                   </div>
@@ -837,9 +1219,9 @@ function ManagePageContent() {
                 </div>
 
                 {memoryItems.length === 0 && !memoryLoading ? (
-                  <div className="empty-card">
+                  <div className="empty-card compact-empty">
                     <strong>No memories yet</strong>
-                    <p>Memories appear here as you use AI products that run on MemoryOS.</p>
+                    <p>New memories will appear here after approved AI apps start using your Passport.</p>
                   </div>
                 ) : (
                   <div className="memory-card-list" id="flat-memory-list">
@@ -885,7 +1267,8 @@ function ManagePageContent() {
                     const valueA = domainValue(options.a, item.field);
                     const valueB = domainValue(options.b, item.field);
                     if (fieldLabel) {
-                      return (
+
+  return (
                         <article className="clarification-card domain-aware" key={item.id}>
                           <div className="clarification-card-header">
                             <span className="clarification-icon" aria-hidden="true">
@@ -914,7 +1297,8 @@ function ManagePageContent() {
                         </article>
                       );
                     }
-                    return (
+
+  return (
                       <article className="clarification-card" key={item.id}>
                         <div className="clarification-card-header">
                           <span className="clarification-icon" aria-hidden="true">
@@ -1025,12 +1409,34 @@ function ManagePageContent() {
             </div>
           </div>
         ) : null}
+
+        {linkInstructions ? (
+          <div className="modal-backdrop">
+            <div className="modal-card">
+              <span className="section-kicker">Secure link connection</span>
+              <h2>Open this connector from {linkInstructions.display_name}</h2>
+              <p>
+                This connector uses secure-link handoff instead of OAuth. Sign in to{" "}
+                {linkInstructions.display_name}, choose <strong>Connect Memory Passport</strong>,
+                and MemoryOS will open through a one-time link for your account.
+              </p>
+              <div className="alert alert-info">
+                Never paste your permanent Passport token into another company&apos;s website. A
+                real secure-link connector opens MemoryOS with a short-lived link.
+              </div>
+              <button type="button" className="primary-button" onClick={() => setLinkInstructions(null)}>
+                Done
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
     </main>
   );
 }
 
 export default function ManagePage() {
+
   return (
     <Suspense
       fallback={
