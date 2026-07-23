@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 
 import "./globals.css";
+import "./polish.css";
+import "./home-polish.css";
+import "./manage-polish.css";
 
 export const metadata: Metadata = {
   title: "MemoryOS Consent Center",
@@ -13,7 +16,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" data-scroll-behavior="smooth">
       <body>{children}</body>
     </html>
   );
