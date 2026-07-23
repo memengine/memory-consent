@@ -70,6 +70,7 @@ function changeTypeClass(changeType: string) {
 export function MemoryCard({ memory, label, loading = false, onCorrect, onFlag, onRemove, onUnflag }: MemoryCardProps) {
   const [mode, setMode] = useState<"idle" | "correct" | "flag" | "remove" | "history">("idle");
   const [showMore, setShowMore] = useState(false);
+  const [showProvenance, setShowProvenance] = useState(false);
   const [flagReason, setFlagReason] = useState<UserMemoryFlagReason>("incorrect");
   const [flagCorrection, setFlagCorrection] = useState("");
   const [history, setHistory] = useState<UniversalMemoryVersion[] | null>(null);
@@ -78,9 +79,26 @@ export function MemoryCard({ memory, label, loading = false, onCorrect, onFlag, 
   const [expandedVersions, setExpandedVersions] = useState<Set<number>>(new Set());
   const isLong = memory.content.length > 200;
   const visibleContent = isLong && !showMore ? `${memory.content.slice(0, 200)}...` : memory.content;
-  const source = memory.source_agent_name
-    ? `via ${memory.source_agent_name}${memory.source_agent_access_revoked ? " (access revoked)" : ""}`
-    : "source unknown";
+  const source =
+    memory.source_type === "org_connection" && memory.source_organisation_name
+      ? `via ${memory.source_organisation_name} (verified connection)`
+      : memory.source_type === "user_correction"
+        ? "corrected by you"
+        : memory.source_type === "system"
+          ? "via MemoryOS"
+          : memory.source_agent_name
+            ? `via ${memory.source_agent_name}${memory.source_agent_access_revoked ? " (access revoked)" : ""}`
+            : "source unknown";
+  const sourceAccess =
+    memory.source_access_status === "active"
+      ? "The source still has an active grant."
+      : memory.source_access_status === "revoked"
+        ? "The source grant was revoked. This memory remains under your control."
+        : memory.source_access_status === "expired"
+          ? "The source grant expired. This memory remains under your control."
+          : memory.source_access_status === "not_required"
+            ? "No agent grant was needed for this user-controlled change."
+            : "Grant status is unavailable for this older memory.";
 
   async function toggleHistory() {
     if (mode === "history") {
@@ -121,9 +139,18 @@ export function MemoryCard({ memory, label, loading = false, onCorrect, onFlag, 
           <span className="importance-pill">{importanceLabel(Number(memory.importance_score || 0))}</span>
           {memory.is_hot ? <span className="hot-pill">flame Hot</span> : null}
           {memory.is_flagged ? <span className="flag-pill">Flagged</span> : null}
+          {memory.claim_status === "disputed" ? <span className="disputed-pill">Source disagreement</span> : null}
         </div>
         <div className="memory-card-meta">
-          <span className={memory.source_agent_access_revoked ? "revoked-source" : ""}>{source}</span>
+          <span
+            className={[
+              memory.source_agent_access_revoked ? "revoked-source" : "",
+              memory.source_type === "org_connection" ? "organisation-source" : "",
+              memory.source_type === "user_correction" ? "user-source" : "",
+            ].filter(Boolean).join(" ")}
+          >
+            {source}
+          </span>
           <span>Stored {storedText(memory.stored_days_ago)}</span>
         </div>
       </div>
@@ -133,6 +160,24 @@ export function MemoryCard({ memory, label, loading = false, onCorrect, onFlag, 
         <button type="button" className="link-button" onClick={() => setShowMore((current) => !current)}>
           {showMore ? "Show less" : "Show more"}
         </button>
+      ) : null}
+
+      <div className="memory-provenance-control">
+        <button type="button" className="link-button" onClick={() => setShowProvenance((current) => !current)}>
+          {showProvenance ? "Hide source details" : "Why this is known"}
+        </button>
+      </div>
+      {showProvenance ? (
+        <div className="memory-provenance-panel">
+          <strong>Why this is known</strong>
+          <dl>
+            <div><dt>Source</dt><dd>{source}</dd></div>
+            <div><dt>Access</dt><dd>{sourceAccess}</dd></div>
+            <div><dt>Claim state</dt><dd>{memory.claim_status === "disputed" ? "Another source reported a different value. Agents receive only the current winner." : "Current"}</dd></div>
+            {memory.provenance_recorded_at ? <div><dt>Recorded</dt><dd>{new Date(memory.provenance_recorded_at).toLocaleString()}</dd></div> : null}
+            {memory.provenance_reason ? <div><dt>Reason</dt><dd>{memory.provenance_reason}</dd></div> : null}
+          </dl>
+        </div>
       ) : null}
 
       <div className={`memory-trend ${trendClass(memory.importance_trend)}`} title="This memory's importance changes based on how often it is used to help AI responses.">
