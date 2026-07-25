@@ -1,0 +1,370 @@
+/* Manage route: compact operational dashboard styling. */
+.consent-shell:has(.permission-hero-copy) {
+  width: min(1260px, 100%);
+  max-width: 1260px;
+  padding: clamp(22px, 2.7vw, 34px);
+  gap: 18px;
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 94% 4%, rgba(109, 93, 252, 0.075), transparent 24rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 253, 0.98));
+}
+
+.permission-hero-copy {
+  display: grid;
+  grid-template-columns: minmax(330px, 0.78fr) minmax(380px, 1fr);
+  grid-template-areas:
+    "pill pill"
+    "title copy";
+  align-items: end;
+  gap: 9px clamp(30px, 5vw, 76px);
+  max-width: none;
+  padding: 2px 2px 22px;
+  border-bottom: 1px solid #e1e8f0;
+}
+
+.permission-hero-copy .pill {
+  grid-area: pill;
+}
+
+.permission-hero-copy h1 {
+  grid-area: title;
+  max-width: 520px;
+  margin: 0;
+  font-size: clamp(2.6rem, 4vw, 4rem);
+  line-height: 0.96;
+  letter-spacing: -0.057em;
+  font-weight: 760;
+}
+
+.permission-hero-copy p {
+  grid-area: copy;
+  max-width: 610px;
+  margin: 0 0 3px;
+  color: #5d6d82;
+  font-size: 15px;
+  line-height: 1.62;
+}
+
+.consent-shell:has(.permission-hero-copy) > .auth-card {
+  width: min(680px, 100%);
+  margin-inline: auto;
+}
+
+.manage-grid {
+  display: grid;
+  gap: 13px;
+}
+
+.passport-overview-panel {
+  grid-template-columns: minmax(250px, 0.92fr) minmax(290px, 1.08fr) minmax(265px, 0.82fr);
+  gap: 11px;
+}
+
+.passport-status-card,
+.passport-score-strip {
+  min-height: 146px;
+  padding: 17px;
+  border-radius: 15px;
+  box-shadow: none;
+}
+
+.passport-status-card {
+  gap: 7px;
+}
+
+.passport-status-card h2 {
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  line-height: 1.04;
+  font-weight: 750;
+}
+
+.passport-status-card p {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.passport-status-card .quiet-button,
+.passport-status-card .primary-button {
+  min-height: 37px;
+  margin-top: auto;
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.passport-status-card .quiet-button {
+  width: 100%;
+}
+
+.passport-score-strip {
+  gap: 8px;
+  background:
+    radial-gradient(circle at 100% 100%, rgba(109, 93, 252, 0.34), transparent 14rem),
+    linear-gradient(145deg, #0b1525, #14213a);
+}
+
+.passport-score-strip div {
+  min-width: 0;
+  border-radius: 11px;
+  padding: 10px 11px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.passport-score-strip strong {
+  font-size: 1.7rem;
+  letter-spacing: -0.04em;
+}
+
+.passport-score-strip span {
+  color: #b8c6d8;
+  font-size: 9px;
+  letter-spacing: 0.09em;
+}
+
+.permission-stepper {
+  gap: 9px;
+}
+
+.permission-stepper button {
+  min-height: 88px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.permission-stepper button:hover {
+  transform: translateY(-1px);
+}
+
+.permission-stepper button.active {
+  border-color: #2cc0d8;
+  background: linear-gradient(135deg, #ebfdff, #f4f3ff);
+  box-shadow: inset 3px 0 0 #20bdd6;
+}
+
+.step-number {
+  width: 29px;
+  height: 29px;
+  border-radius: 9px;
+  font-size: 10px;
+}
+
+.step-copy {
+  gap: 3px;
+}
+
+.step-copy strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.step-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #68788d;
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.step-count {
+  min-width: 25px;
+  height: 25px;
+  padding-inline: 6px;
+  font-size: 11px;
+}
+
+.manage-tab-panel {
+  border: 1px solid #dfe7ef;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.6);
+  padding: 13px;
+}
+
+.grants-panel {
+  gap: 13px;
+}
+
+.grant-summary-grid {
+  grid-template-columns: minmax(220px, 0.7fr) minmax(420px, 1.3fr);
+  gap: 11px;
+}
+
+.grant-summary-card,
+.grant-token-card {
+  min-height: 135px;
+  border-radius: 14px;
+  padding: 17px;
+}
+
+.grant-summary-card {
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "title value"
+    "copy copy";
+  align-items: center;
+  column-gap: 16px;
+}
+
+.grant-summary-card > strong {
+  grid-area: title;
+  font-size: 14px;
+}
+
+.grant-summary-card > span {
+  grid-area: value;
+  justify-self: end;
+  font-size: 2.8rem;
+  line-height: 1;
+}
+
+.grant-summary-card > p {
+  grid-area: copy;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.grant-token-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "heading button"
+    "token button";
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.grant-token-card .section-heading {
+  grid-area: heading;
+}
+
+.grant-token-card .section-heading h2 {
+  font-size: 1.3rem;
+}
+
+.grant-token-card .section-heading p {
+  font-size: 12px;
+}
+
+.grant-token-card code {
+  grid-area: token;
+  border-radius: 10px;
+  padding: 11px 13px;
+}
+
+.grant-token-card .danger-outline-button {
+  grid-area: button;
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.grant-list {
+  gap: 10px;
+}
+
+.grant-card {
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: none;
+}
+
+.grant-card:hover {
+  border-color: #b8c8d9;
+}
+
+.grant-card .agent-logo.small {
+  border-radius: 12px;
+}
+
+.grant-card .agent-title-row h2 {
+  font-size: 1.05rem;
+}
+
+.connection-card,
+.organisation-card,
+.memory-card,
+.clarification-card {
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.memory-toolbar {
+  border-radius: 14px;
+  padding: 11px;
+}
+
+@media (max-width: 1080px) {
+  .permission-hero-copy {
+    grid-template-columns: 1fr;
+    grid-template-areas: "pill" "title" "copy";
+  }
+
+  .permission-hero-copy h1,
+  .permission-hero-copy p {
+    max-width: 720px;
+  }
+
+  .passport-overview-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .passport-score-strip {
+    grid-column: 1 / -1;
+    min-height: auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .permission-stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .consent-shell:has(.permission-hero-copy) {
+    padding: 17px 13px;
+    border-radius: 19px;
+  }
+
+  .permission-hero-copy {
+    padding-bottom: 17px;
+  }
+
+  .permission-hero-copy h1 {
+    font-size: clamp(2.35rem, 12vw, 3.3rem);
+  }
+
+  .passport-overview-panel,
+  .permission-stepper,
+  .grant-summary-grid,
+  .grant-token-card {
+    grid-template-columns: 1fr;
+  }
+
+  .passport-status-card {
+    min-height: 0;
+  }
+
+  .passport-score-strip {
+    grid-column: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .permission-stepper button {
+    min-height: 76px;
+  }
+
+  .manage-tab-panel {
+    padding: 10px;
+  }
+
+  .grant-token-card {
+    grid-template-areas: "heading" "token" "button";
+  }
+
+  .grant-token-card .danger-outline-button {
+    width: 100%;
+  }
+}

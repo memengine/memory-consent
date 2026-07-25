@@ -1,0 +1,252 @@
+/* Presentation-only MemoryOS consent polish. Functional code stays unchanged. */
+:root {
+  --mos-ink: #07111f;
+  --mos-text: #101828;
+  --mos-muted: #526174;
+  --mos-line: #d9e2ec;
+  --mos-cyan: #08b9d6;
+  --mos-blue: #2563eb;
+  --mos-violet: #6d5dfc;
+  --mos-shadow: 0 22px 60px rgba(15, 23, 42, 0.1);
+  --mos-radius-lg: 24px;
+  --mos-radius-md: 16px;
+  --mos-radius-sm: 12px;
+}
+
+html { background: #eef3f8; scroll-behavior: smooth; }
+body {
+  background:
+    radial-gradient(circle at 4% 0%, rgba(8, 185, 214, 0.11), transparent 26rem),
+    radial-gradient(circle at 96% 16%, rgba(109, 93, 252, 0.1), transparent 28rem),
+    linear-gradient(180deg, #f8fafc 0%, #eef3f8 100%);
+  color: var(--mos-text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button, input, select, textarea { font-family: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid rgba(8, 185, 214, 0.34);
+  outline-offset: 3px;
+}
+
+.consent-page, .landing-page { padding: clamp(18px, 3vw, 36px); }
+.consent-shell, .landing-shell, .completion-shell, .hosted-connect-shell, .compact-status-shell {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--mos-shadow);
+}
+.consent-shell {
+  max-width: 1160px;
+  border-radius: 28px;
+  padding: clamp(22px, 3.4vw, 38px);
+  gap: clamp(22px, 3vw, 32px);
+  overflow: visible;
+}
+.pill, .section-kicker { color: #087da4; font-weight: 800; letter-spacing: 0.12em; }
+.pill { border: 1px solid #bcebf3; background: #ecfbfe; padding: 7px 12px; }
+.consent-hero, .consent-home-hero { gap: clamp(22px, 4vw, 44px); }
+.consent-hero-copy h1, .consent-hero h1, .landing-copy h1, .consent-home-copy h1, .completion-status h1 {
+  color: #070d1d;
+  font-weight: 760;
+  letter-spacing: -0.052em;
+  text-wrap: balance;
+}
+.consent-hero-copy h1 { max-width: 720px; font-size: clamp(2.4rem, 4.5vw, 4.25rem); line-height: 0.99; }
+.consent-hero-copy p, .landing-copy p, .section-heading p { color: var(--mos-muted); line-height: 1.62; }
+
+.consent-steps { gap: 8px; }
+.consent-step {
+  min-height: 78px;
+  border-radius: var(--mos-radius-sm);
+  border-color: var(--mos-line);
+  padding: 12px 13px;
+}
+.consent-step.is-active {
+  border-color: #6bd7e8;
+  background: linear-gradient(135deg, #ecfeff, #eff6ff);
+  box-shadow: inset 0 0 0 1px rgba(8, 185, 214, 0.12);
+}
+.consent-step.is-active strong { color: #087da4; }
+.consent-layout { grid-template-columns: minmax(0, 1fr) minmax(280px, 344px); gap: clamp(18px, 2.5vw, 28px); }
+.consent-main-column, .manage-grid, .grants-panel, .grant-list, .memory-card-list { gap: 16px; }
+
+.consent-card, .agent-card, .success-card, .consent-action-bar, .passport-status-card,
+.passport-score-strip, .grant-card, .memory-card, .organisation-card, .connection-card,
+.empty-card, .clarification-card, .playground-card, .playground-response {
+  border-color: var(--mos-line);
+  border-radius: var(--mos-radius-md);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+}
+.consent-card, .agent-card, .grant-card, .memory-card, .organisation-card,
+.connection-card, .playground-card, .playground-response { background: #fff; }
+.consent-card { padding: clamp(18px, 2.5vw, 25px); }
+.section-heading { gap: 6px; }
+.section-heading h2, .agent-body h2, .consent-trust-panel h2 { font-weight: 740; letter-spacing: -0.032em; }
+
+.field { gap: 7px; }
+.field span { font-size: 14px; font-weight: 700; }
+.field input, .field textarea, .field select, .sort-control select, .otp-input, .directory-toolbar input {
+  border-color: #cbd7e4;
+  border-radius: var(--mos-radius-sm);
+  background: #fff;
+  min-height: 48px;
+  padding: 12px 14px;
+}
+.field input:hover, .field textarea:hover, .field select:hover, .sort-control select:hover,
+.directory-toolbar input:hover { border-color: #9eb2c8; }
+.field input:focus, .field textarea:focus, .field select:focus, .sort-control select:focus,
+.otp-input:focus, .directory-toolbar input:focus {
+  border-color: var(--mos-cyan);
+  box-shadow: 0 0 0 4px rgba(8, 185, 214, 0.12);
+}
+
+.primary-button, .allow-button, .deny-button, .quiet-button, .danger-button,
+.danger-outline-button, .landing-link {
+  min-height: 46px;
+  border-radius: var(--mos-radius-sm);
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 750;
+  box-shadow: none;
+  transition: transform 150ms ease, border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+.primary-button, .allow-button, .landing-link.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #08bed8 0%, #2376f5 58%, #6558ed 100%);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18);
+}
+.primary-button:hover:not(:disabled), .allow-button:hover:not(:disabled), .landing-link.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.22);
+}
+.quiet-button, .deny-button, .landing-link.secondary {
+  border-color: #d4deea;
+  background: #fff;
+  color: #26364a;
+}
+.quiet-button:hover:not(:disabled), .deny-button:hover:not(:disabled), .landing-link.secondary:hover {
+  border-color: #93a7bd;
+  background: #f8fafc;
+}
+
+.auth-card { border-color: #d5e3f0; background: #fff; box-shadow: 0 16px 44px rgba(15, 23, 42, 0.07); }
+.auth-card .section-heading h2 { font-size: clamp(1.55rem, 2.4vw, 2.1rem); font-weight: 760; }
+.otp-panel { border-radius: var(--mos-radius-md); border-color: #bde5ef; background: linear-gradient(135deg, #effcff, #f5f7ff); }
+.otp-input { min-height: 58px; }
+.agent-card { grid-template-columns: auto minmax(0, 1fr); background: linear-gradient(135deg, #f0fbfd 0%, #fff 54%, #f7f5ff 100%); }
+.agent-logo { border-radius: 18px; border-color: #bfe6ee; background: #e8fbfe; color: #087da4; }
+.verify-badge.verified { background: #dff9ed; color: #087a55; }
+
+.category-grid, .duration-grid { gap: 10px; }
+.category-card, .duration-card {
+  border-color: var(--mos-line);
+  border-radius: 14px;
+  background: #fbfcfe;
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+.category-card:hover, .duration-card:hover { border-color: #8ddcea; transform: translateY(-1px); }
+.category-card.selected, .duration-card.selected {
+  border-color: #37c3da;
+  background: linear-gradient(135deg, #ecfeff, #eff6ff);
+  box-shadow: inset 0 0 0 1px rgba(8, 185, 214, 0.12);
+}
+.category-check { background: #edf4f8; color: #526174; }
+.category-card.selected .category-check { background: #c9f7ef; color: #087a55; }
+
+.consent-action-bar {
+  bottom: 14px;
+  padding: 13px 14px;
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+}
+.consent-trust-panel {
+  top: 18px;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(8, 185, 214, 0.23), transparent 15rem),
+    radial-gradient(circle at 0% 100%, rgba(109, 93, 252, 0.2), transparent 16rem),
+    linear-gradient(160deg, #07111f, #101b2d 64%, #171a3e);
+  box-shadow: 0 20px 52px rgba(7, 17, 31, 0.2);
+}
+.trust-orb { border-radius: 15px; background: linear-gradient(135deg, #c7f9ff, #dcd8ff); color: #112140; }
+.trust-list div { border-color: rgba(165, 222, 238, 0.16); border-radius: 14px; background: rgba(255, 255, 255, 0.055); }
+.trust-list span, .consent-trust-panel p { color: #bdc9d9; }
+
+.passport-overview-panel, .permission-stepper, .grant-summary-grid { gap: 12px; }
+.passport-status-card, .passport-score-strip { border-radius: var(--mos-radius-md); padding: 18px; }
+.passport-status-card.primary { border-color: #bde5ef; background: linear-gradient(135deg, #f0fdff, #fff); }
+.passport-status-card.action { border-color: #bfeedd; background: linear-gradient(135deg, #f0fdf8, #fff); }
+.passport-score-strip {
+  background: radial-gradient(circle at 100% 100%, rgba(109, 93, 252, 0.28), transparent 15rem), #101b2d;
+}
+.passport-score-strip div { border-radius: 12px; }
+.permission-stepper button {
+  min-height: 112px;
+  border-radius: var(--mos-radius-md);
+  border-color: var(--mos-line);
+  padding: 14px;
+  box-shadow: none;
+}
+.permission-stepper button:hover { border-color: #86d7e5; box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06); }
+.permission-stepper button.active {
+  border-color: #35bdd4;
+  background: linear-gradient(135deg, #ecfeff, #f5f3ff);
+  box-shadow: inset 0 0 0 1px rgba(8, 185, 214, 0.11);
+}
+.permission-stepper button.active .step-number { background: linear-gradient(135deg, #10bfd9, #4d6fea); }
+.grant-card { padding: 18px; }
+.memory-toolbar { border-radius: var(--mos-radius-md); border-color: var(--mos-line); background: #f6f9fc; }
+.category-pills button { border-color: #d4deea; color: #445469; }
+.category-pills button.active { border-color: #33bdd4; background: #eafcff; color: #087da4; }
+
+.modal-backdrop { background: rgba(7, 17, 31, 0.64); backdrop-filter: blur(6px); }
+.modal-card { border: 1px solid rgba(148, 163, 184, 0.28); border-radius: 20px; box-shadow: 0 30px 90px rgba(7, 17, 31, 0.28); }
+.alert { border-radius: 14px; }
+.completion-shell, .hosted-connect-shell, .compact-status-shell { border-radius: 24px; }
+.completion-mark { background: linear-gradient(135deg, #0b1728, #223158); }
+
+.consent-home-shell {
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at 88% 14%, rgba(109, 93, 252, 0.13), transparent 22rem),
+    radial-gradient(circle at 8% 90%, rgba(8, 185, 214, 0.11), transparent 22rem),
+    rgba(255, 255, 255, 0.95);
+}
+.consent-home-copy h1 { font-size: clamp(2.75rem, 6vw, 5.35rem); line-height: 0.96; }
+.consent-home-visual {
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 76% 18%, rgba(8, 185, 214, 0.26), transparent 13rem),
+    radial-gradient(circle at 8% 90%, rgba(109, 93, 252, 0.28), transparent 15rem),
+    linear-gradient(155deg, #07111f, #111d32 66%, #171a3e);
+}
+.visual-card, .option-card { border-radius: 18px; }
+.playground-response, .response-json, .context-preview { border-radius: var(--mos-radius-md); }
+
+@media (max-width: 980px) {
+  .consent-layout, .consent-hero, .consent-action-bar { grid-template-columns: 1fr; }
+  .consent-trust-panel { position: static; order: -1; }
+  .permission-stepper button { min-height: 96px; }
+}
+@media (max-width: 680px) {
+  .consent-page, .landing-page { padding: 10px; }
+  .consent-shell, .landing-shell { border-radius: 20px; padding: 18px 14px; }
+  .consent-hero-copy h1, .consent-home-copy h1 { font-size: clamp(2.15rem, 11vw, 3.1rem); }
+  .consent-step { min-height: 0; }
+  .consent-action-bar { bottom: 8px; }
+  .agent-card { grid-template-columns: 1fr; }
+  .permission-stepper, .passport-overview-panel, .grant-summary-grid, .category-grid, .duration-grid { grid-template-columns: 1fr; }
+  .passport-score-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
